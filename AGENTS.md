@@ -53,7 +53,7 @@ go build -o bin/aigw ./cmd/aigw
 go run ./cmd/aigw
 
 # Ejecutar con flags
-go run ./cmd/aigw -addr :8080 -db data/aigw.db -log-level debug
+go run ./cmd/aigw -addr :18473 -db data/aigw.db -log-level debug
 
 # Tests
 go test ./...

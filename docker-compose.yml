@@ -3,7 +3,7 @@ services:
     build: .
     image: aigw:local
     ports:
-      - "8080:8080"
+      - "18473:18473"
     volumes:
       - aigw-data:/app/data
     environment:

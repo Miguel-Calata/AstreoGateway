@@ -36,9 +36,9 @@ steps:
   - Añadir VOLUME /app/data en Dockerfile
   - Actualizar README sección Docker: docker compose up --build -d, healthcheck externo
 done:
-  - docker compose up --build -d && curl localhost:8080/healthz devuelve 200
+  - docker compose up --build -d && curl localhost:18473/healthz devuelve 200
   - reinicio del contenedor preserva datos
-verify: docker compose up --build -d && curl -s localhost:8080/healthz && docker compose down
+verify: docker compose up --build -d && curl -s localhost:18473/healthz && docker compose down
 deps: S02
 status: done
 

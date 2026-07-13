@@ -25,7 +25,7 @@ type Config struct {
 // Load parses env vars and flags into a Config.
 func Load() (*Config, error) {
 	fs := flag.NewFlagSet("aigw", flag.ContinueOnError)
-	addr := fs.String("addr", envOr("AIGW_ADDR", ":8080"), "HTTP listen address")
+	addr := fs.String("addr", envOr("AIGW_ADDR", ":18473"), "HTTP listen address")
 	dbPath := fs.String("db", envOr("AIGW_DB", "data/aigw.db"), "SQLite database path")
 	logLevel := fs.String("log-level", envOr("AIGW_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	discoveryTTL := fs.String("discovery-ttl", envOr("AIGW_DISCOVERY_TTL", "5m"), "model cache refresh interval")

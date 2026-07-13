@@ -26,6 +26,6 @@ COPY --from=go-build /out/aigw /app/aigw
 COPY --from=go-build --chown=65532:65532 /out/data /app/data
 VOLUME /app/data
 USER nonroot
-EXPOSE 8080
+EXPOSE 18473
 ENTRYPOINT ["/app/aigw"]
-CMD ["-addr", ":8080", "-db", "/app/data/aigw.db"]
+CMD ["-addr", ":18473", "-db", "/app/data/aigw.db"]

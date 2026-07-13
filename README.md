@@ -41,7 +41,7 @@ cd ui && npm install && npm run build && cd ..
 go build -o bin/aigw ./cmd/aigw
 
 # 3. Ejecutar
-./bin/aigw -addr :8080 -db data/aigw.db -log-level debug
+./bin/aigw -addr :18473 -db data/aigw.db -log-level debug
 
 # Alternativa rápida (sin build de UI): abre /admin y verás bootstrap/login.
 # La SPA se construye antes del go build.
@@ -53,7 +53,7 @@ Flags / env: `-addr` (`AIGW_ADDR`), `-db` (`AIGW_DB`), `-log-level`,
 
 ### Bootstrap (UI web abierta en `/admin`)
 
-Abre `http://localhost:8080/admin/` en el navegador. La primera vez pide crear
+Abre `http://localhost:18473/admin/` en el navegador. La primera vez pide crear
 un admin. Tras login tienes el panel: Providers, API Keys, Aliases, Gateway Keys,
 Discovery.
 
@@ -61,19 +61,19 @@ Discovery.
 
 ```bash
 # 1. Crear primer admin (solo si no hay usuarios)
-curl -s -X POST http://localhost:8080/admin/api/bootstrap \
+curl -s -X POST http://localhost:18473/admin/api/bootstrap \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"changeme"}'
 
 # 2. Login (cookie de sesión)
-curl -s -c cookies.txt -X POST http://localhost:8080/admin/api/login \
+curl -s -c cookies.txt -X POST http://localhost:18473/admin/api/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"changeme"}'
 
 # 3. Provider + API key upstream + gateway key de entrada
 # (POST /admin/api/providers, .../api-keys, /admin/api/gateway-keys)
 # 4. Chat con Bearer de la gateway key
-curl -s http://localhost:8080/v1/chat/completions \
+curl -s http://localhost:18473/v1/chat/completions \
   -H "Authorization: Bearer <gateway_key>" \
   -H 'Content-Type: application/json' \
   -d '{"model":"openai:gpt-4o-mini","messages":[{"role":"user","content":"hola"}]}'
@@ -109,12 +109,12 @@ Sin prefijo: se busca como alias. Si no existe → 404.
 ```bash
 # Preferido
 docker compose up --build -d
-curl -s http://localhost:8080/healthz
+curl -s http://localhost:18473/healthz
 
 # Alternativa (un solo contenedor)
 docker build -t aigw .
-docker run --rm -p 8080:8080 -v aigw-data:/app/data aigw
-curl -s http://localhost:8080/healthz
+docker run --rm -p 18473:18473 -v aigw-data:/app/data aigw
+curl -s http://localhost:18473/healthz
 ```
 
 Persistencia: volume named `aigw-data` montado en `/app/data`. La imagen runtime
