@@ -1,25 +1,24 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   useApiKeys, useCreateApiKey, useDeleteApiKey, useUpdateApiKey, useProviders,
 } from "@/lib/queries";
-import { ApiError, type ApiKey } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { protocolVariant } from "@/lib/format";
+import { protocolVariant, shortId } from "@/lib/format";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/PageHeader";
 import { ProviderEditor } from "@/features/providers/ProviderEditor";
-import { shortId } from "@/lib/format";
 
 export function ProviderDetail() {
   const { id = "" } = useParams();
@@ -87,7 +86,13 @@ export function ProviderDetail() {
                       <Switch
                         checked={k.enabled}
                         disabled={upd.isPending}
-                        onCheckedChange={() => upd.mutateAsync({ id: k.id, body: { ...k, enabled: !k.enabled } })}
+                        onCheckedChange={async () => {
+                          try {
+                            await upd.mutateAsync({ id: k.id, body: { ...k, enabled: !k.enabled } });
+                          } catch (err) {
+                            toast.error(err instanceof ApiError ? err.message : "Toggle failed");
+                          }
+                        }}
                       />
                     </td>
                     <td className="px-3 py-2 text-right">
