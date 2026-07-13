@@ -24,23 +24,46 @@ func CreateProvider(db *sql.DB, p *model.Provider) error {
 	return nil
 }
 
+func scanProvider(id, name, protocol, baseURL, headersJSON string, enabled int) (*model.Provider, error) {
+	p := &model.Provider{
+		ID:       id,
+		Name:     name,
+		Protocol: protocol,
+		BaseURL:  baseURL,
+		Enabled:  intToBool(enabled),
+	}
+	if err := json.Unmarshal([]byte(headersJSON), &p.Headers); err != nil {
+		p.Headers = map[string]string{}
+	}
+	return p, nil
+}
+
 func GetProviderByID(db *sql.DB, id string) (*model.Provider, error) {
-	var p model.Provider
-	var headersJSON string
+	var pID, name, protocol, baseURL, headersJSON string
 	var enabled int
 	err := db.QueryRow(`SELECT id, name, protocol, base_url, enabled, headers FROM providers WHERE id = ?`, id).
-		Scan(&p.ID, &p.Name, &p.Protocol, &p.BaseURL, &enabled, &headersJSON)
+		Scan(&pID, &name, &protocol, &baseURL, &enabled, &headersJSON)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("get provider: %w", err)
 	}
-	p.Enabled = intToBool(enabled)
-	if err := json.Unmarshal([]byte(headersJSON), &p.Headers); err != nil {
-		p.Headers = map[string]string{}
+	return scanProvider(pID, name, protocol, baseURL, headersJSON, enabled)
+}
+
+func GetProviderByName(db *sql.DB, name string) (*model.Provider, error) {
+	var pID, pName, protocol, baseURL, headersJSON string
+	var enabled int
+	err := db.QueryRow(`SELECT id, name, protocol, base_url, enabled, headers FROM providers WHERE name = ?`, name).
+		Scan(&pID, &pName, &protocol, &baseURL, &enabled, &headersJSON)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get provider by name: %w", err)
 	}
-	return &p, nil
+	return scanProvider(pID, pName, protocol, baseURL, headersJSON, enabled)
 }
 
 func ListProviders(db *sql.DB) ([]model.Provider, error) {

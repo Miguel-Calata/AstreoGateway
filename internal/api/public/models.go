@@ -23,6 +23,16 @@ func listModels(db *sql.DB, cache *discovery.Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cacheModels := cache.Models()
 
+		providers, err := store.ListProviders(db)
+		if err != nil {
+			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+			return
+		}
+		idToName := make(map[string]string, len(providers))
+		for _, p := range providers {
+			idToName[p.ID] = p.Name
+		}
+
 		aliases, err := store.ListAliases(db)
 		if err != nil {
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
@@ -31,8 +41,12 @@ func listModels(db *sql.DB, cache *discovery.Cache) http.HandlerFunc {
 
 		data := make([]modelEntry, 0, len(cacheModels)+len(aliases))
 		for _, m := range cacheModels {
+			prefix := idToName[m.ProviderID]
+			if prefix == "" {
+				prefix = m.ProviderID
+			}
 			data = append(data, modelEntry{
-				ID:      m.ProviderID + ":" + m.ModelID,
+				ID:      prefix + ":" + m.ModelID,
 				Object:  "model",
 				OwnedBy: m.OwnedBy,
 			})

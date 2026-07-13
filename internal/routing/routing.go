@@ -75,10 +75,16 @@ func (s *Selector) NextFailoverTarget(alias model.Alias, tried map[string]bool) 
 	return nil, nil, ErrAliasNoTargets
 }
 
-func (s *Selector) resolveDirect(providerID, modelName string) (*Resolved, error) {
-	prov, err := store.GetProviderByID(s.db, providerID)
+func (s *Selector) resolveDirect(providerRef, modelName string) (*Resolved, error) {
+	prov, err := store.GetProviderByID(s.db, providerRef)
 	if err != nil {
 		return nil, fmt.Errorf("get provider: %w", err)
+	}
+	if prov == nil {
+		prov, err = store.GetProviderByName(s.db, providerRef)
+		if err != nil {
+			return nil, fmt.Errorf("get provider by name: %w", err)
+		}
 	}
 	if prov == nil || !prov.Enabled {
 		return nil, ErrProviderNotFound
@@ -86,7 +92,7 @@ func (s *Selector) resolveDirect(providerID, modelName string) (*Resolved, error
 	if prov.Protocol != "openai" && prov.Protocol != "anthropic" {
 		return nil, ErrProtocolMismatch
 	}
-	apiKey, ok := s.pool.Get(providerID)
+	apiKey, ok := s.pool.Get(prov.ID)
 	if !ok {
 		return nil, ErrNoAPIKey
 	}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -146,6 +147,76 @@ func TestListModelsReturnsModelsAndAliases(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected alias 'coding' in response, got %v", body.Data)
+	}
+}
+
+func TestListModelsUsesProviderNamePrefix(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := store.Migrate(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	_, err = store.CreateGatewayKey(db, "aigw_testtoken1234567890", "test-key")
+	if err != nil {
+		t.Fatalf("create gw key: %v", err)
+	}
+
+	err = store.CreateProvider(db, &model.Provider{
+		ID:       "019f59f3-d4ec-7e54-bb4e-0bbee64fbced",
+		Name:     "mistral",
+		Protocol: "openai",
+		BaseURL:  "http://unused",
+		Enabled:  true,
+		Headers:  map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	pool := keypool.New()
+	cache := discovery.New(db, pool, 5*time.Minute, 5*time.Second, nopLogger)
+	cache.InjectTestModels("019f59f3-d4ec-7e54-bb4e-0bbee64fbced", []discovery.Model{
+		{ProviderID: "019f59f3-d4ec-7e54-bb4e-0bbee64fbced", ModelID: "mistral-medium-2505"},
+	})
+	sel := routing.NewSelector(db, cache, pool)
+	prox := proxy.New(pool, 5*time.Second, 30*time.Second, nopLogger)
+	publicHandler := NewRouter(db, cache, prox, sel, nopLogger)
+	r := chi.NewRouter()
+	r.Route("/v1", func(r chi.Router) {
+		r.Mount("/", publicHandler)
+	})
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer aigw_testtoken1234567890")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body modelsResponse
+	json.NewDecoder(resp.Body).Decode(&body)
+	found := false
+	for _, m := range body.Data {
+		if m.ID == "mistral:mistral-medium-2505" {
+			found = true
+		}
+		if strings.Contains(m.ID, "019f59f3") {
+			t.Fatalf("expected name prefix, got UUID id %q", m.ID)
+		}
+	}
+	if !found {
+		t.Fatalf("expected mistral:mistral-medium-2505, got %v", body.Data)
 	}
 }
 

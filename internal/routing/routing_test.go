@@ -79,6 +79,27 @@ func TestResolveDirectProvider(t *testing.T) {
 	}
 }
 
+func TestResolveDirectByProviderName(t *testing.T) {
+	e := setup(t)
+	e.seedProvider("uuid-1", "mistral", "openai", "http://localhost:9999")
+	e.seedKey("uuid-1", "sk-mistral")
+	e.pool.Load(e.db)
+
+	res, err := e.sel.Resolve("mistral:mistral-large-latest")
+	if err != nil {
+		t.Fatalf("resolve by name: %v", err)
+	}
+	if res.Provider.ID != "uuid-1" {
+		t.Fatalf("expected uuid-1, got %s", res.Provider.ID)
+	}
+	if res.ModelName != "mistral-large-latest" {
+		t.Fatalf("expected mistral-large-latest, got %s", res.ModelName)
+	}
+	if res.APIKey.Value != "sk-mistral" {
+		t.Fatalf("expected sk-mistral, got %s", res.APIKey.Value)
+	}
+}
+
 func TestResolveDirectNotFound(t *testing.T) {
 	e := setup(t)
 	_, err := e.sel.Resolve("noexist:model")

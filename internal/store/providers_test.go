@@ -6,6 +6,30 @@ import (
 	"astreoGateway/internal/model"
 )
 
+func TestGetProviderByName(t *testing.T) {
+	db := testDB(t)
+	p := &model.Provider{
+		ID: "uuid-1", Name: "mistral", Protocol: "openai", BaseURL: "http://x", Enabled: true, Headers: map[string]string{},
+	}
+	if err := CreateProvider(db, p); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := GetProviderByName(db, "mistral")
+	if err != nil {
+		t.Fatalf("get by name: %v", err)
+	}
+	if got == nil || got.ID != "uuid-1" {
+		t.Fatalf("expected uuid-1, got %#v", got)
+	}
+	missing, err := GetProviderByName(db, "nope")
+	if err != nil {
+		t.Fatalf("missing: %v", err)
+	}
+	if missing != nil {
+		t.Fatalf("expected nil for missing name")
+	}
+}
+
 func TestProviderCRUD(t *testing.T) {
 	db := testDB(t)
 

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"astreoGateway/internal/discovery"
 	"astreoGateway/internal/model"
@@ -11,6 +12,17 @@ import (
 
 	"github.com/go-chi/chi/v5"
 )
+
+func validateProviderName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "name is required"
+	}
+	if strings.Contains(name, ":") {
+		return "name must not contain ':' (used as provider:model separator)"
+	}
+	return ""
+}
 
 func providersRouter(db *sql.DB, cache *discovery.Cache) http.Handler {
 	r := chi.NewRouter()
@@ -44,9 +56,15 @@ func createProvider(db *sql.DB) http.HandlerFunc {
 			writeJSON(w, map[string]any{"error": "invalid JSON"})
 			return
 		}
+		p.Name = strings.TrimSpace(p.Name)
 		if p.Name == "" || p.Protocol == "" || p.BaseURL == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			writeJSON(w, map[string]any{"error": "name, protocol, and base_url are required"})
+			return
+		}
+		if msg := validateProviderName(p.Name); msg != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]any{"error": msg})
 			return
 		}
 		if p.Protocol != "openai" && p.Protocol != "anthropic" {
@@ -95,6 +113,12 @@ func updateProvider(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		p.ID = id
+		p.Name = strings.TrimSpace(p.Name)
+		if msg := validateProviderName(p.Name); msg != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]any{"error": msg})
+			return
+		}
 		if p.Headers == nil {
 			p.Headers = map[string]string{}
 		}

@@ -69,7 +69,10 @@ export function ProviderEditor({
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">Name</Label>
-            <Input id="name" value={form.name} onChange={(e) => set({ name: e.target.value })} required />
+            <Input id="name" value={form.name} onChange={(e) => set({ name: e.target.value })} required placeholder="mistral" />
+            <p className="text-xs text-muted-foreground">
+              Public model IDs use this as prefix: <code>{(form.name || "name").trim() || "name"}:model</code>. No colons.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
