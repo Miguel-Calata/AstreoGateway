@@ -15,6 +15,7 @@ import (
 	"astreoGateway/internal/config"
 	"astreoGateway/internal/discovery"
 	"astreoGateway/internal/keypool"
+	"astreoGateway/internal/metrics"
 	"astreoGateway/internal/proxy"
 	"astreoGateway/internal/routing"
 	"astreoGateway/internal/store"
@@ -64,7 +65,7 @@ func main() {
 	cache.Start(discCtx)
 	defer cache.Stop()
 
-	adminHandler, err := admin.NewRouter(db, secret, cache)
+	adminHandler, err := admin.NewRouter(db, secret, cache, pool)
 	if err != nil {
 		logger.Error("failed to create admin router", "err", err)
 		os.Exit(1)
@@ -74,7 +75,9 @@ func main() {
 	prox := proxy.New(pool, cfg.ProxyTimeout, cfg.KeyCooldown, logger)
 	publicHandler := public.NewRouter(db, cache, prox, sel, logger)
 
+	startedAt := time.Now()
 	r := chi.NewRouter()
+	r.Get("/healthz", metrics.Healthz(db, startedAt))
 	r.Route("/admin/api", func(r chi.Router) {
 		r.Mount("/", adminHandler)
 	})

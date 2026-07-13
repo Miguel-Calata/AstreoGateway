@@ -71,7 +71,7 @@ func TestPassthroughNonStream(t *testing.T) {
 	defer upstream.Close()
 
 	e := setupProxy(t)
-	seedProvAndKey(t, e.db, "prov1", upstream.URL, "sk-upstream")
+	seedProvAndKey(t, e.db, "prov1", upstream.URL+"/v1", "sk-upstream")
 	e.pool.Load(e.db)
 	e.cache.InjectTestModels("prov1", []discovery.Model{{ProviderID: "prov1", ModelID: "gpt-5"}})
 
@@ -226,5 +226,31 @@ func TestNoFailoverFor400(t *testing.T) {
 
 	if w.Code != 400 {
 		t.Fatalf("expected 400 (no failover), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOpenAIBaseURLWithV1(t *testing.T) {
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": "chatcmpl-1"})
+	}))
+	defer upstream.Close()
+
+	e := setupProxy(t)
+	seedProvAndKey(t, e.db, "prov1", upstream.URL+"/v1", "sk-upstream")
+	e.pool.Load(e.db)
+	e.cache.InjectTestModels("prov1", []discovery.Model{{ProviderID: "prov1", ModelID: "gpt-5"}})
+
+	body := []byte(`{"model":"prov1:gpt-5","messages":[{"role":"user","content":"hi"}]}`)
+	w := httptest.NewRecorder()
+	e.proxy.ChatCompletions(context.Background(), w, e.sel, "prov1:gpt-5", body, false)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if gotPath != "/v1/chat/completions" {
+		t.Fatalf("expected path /v1/chat/completions, got %q", gotPath)
 	}
 }

@@ -106,24 +106,17 @@ go vet ./...
 4. Discovery + `/v1/models`            ✓
 5. Proxy passthrough OpenAI→OpenAI     ✓
 6. Traducción Anthropic               ✓ (v1)
-7. `/v1/embeddings`                    pendiente (stub 501)
-8. Métricas + estado de salud          pendiente
-9. Docker + docs finales               parcial (Dockerfile base)
+7. `/v1/embeddings`                    ✓
+8. Métricas + estado de salud          parcial (`GET /healthz`; métricas pendientes)
+9. Docker + docs finales               ✓ (Dockerfile alineado a go.mod)
 
 ## Known issues
 
-- **Keypool stale**: `pool.Load` solo al arranque; CRUD de API keys en admin no
-  recarga el pool en caliente.
-- **URL OpenAI en proxy**: concatenación `BaseURL + "/v1/chat/completions"`;
-  si el admin guarda un base con `/v1` (p. ej. `https://api.openai.com/v1`)
-  puede resultar `.../v1/v1/chat/completions`. Discovery y Anthropic usan
-  `path.Join` de forma distinta.
 - **Secrets en admin API**: list/get de API keys de proveedor incluyen
   `key_value` en claro en el JSON.
 - **Cookie admin**: HttpOnly + SameSite=Lax, sin `Secure`.
 - **UI / embed**: `/admin/*` responde 501; `internal/web/dist` y `ui/` vacíos.
-- **Docker vs go.mod**: imagen `golang:1.22-alpine` vs `go 1.25.0` en `go.mod`.
-- **Cobertura**: faltan tests de keypool, api_keys admin/store y chat e2e.
+- **Cobertura**: falta chat e2e público vía router.
 
 ## Convenciones
 

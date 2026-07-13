@@ -169,3 +169,25 @@ método, subrouters). El resto es stdlib: `net/http`, `log/slog`,
 `database/sql`, `embed`, `crypto/hmac`, `crypto/sha256`, `golang.org/x/crypto/bcrypt`.
 
 `chi` es ~1000 LOC, sin generar código, sin reflection. Encaja con "ligero".
+
+## 14. Join de URLs OpenAI
+
+Los paths upstream OpenAI se construyen con `url.Parse` + `path.Join` del
+segmento relativo (`models`, `chat/completions`, …), igual que Anthropic
+(`BuildMessagesURL`) y discovery (`buildModelsURL`). No se concatena
+`BaseURL + "/v1/..."`.
+
+Efecto: si el admin guarda `https://api.openai.com/v1` o
+`https://api.openai.com/v1/`, el path final es `.../v1/chat/completions`
+(sin doble `/v1`). Si guarda un base sin prefijo de versión
+(`http://localhost:8080`), se une solo el segmento (`.../chat/completions`),
+sin adivinar `/v1`.
+
+Helper: `protocol/openai.BuildChatCompletionsURL`.
+
+## 15. Keypool reload en caliente
+
+`keypool.Pool.Load` se invoca al arranque y tras create/update/delete de API
+keys en admin. Full reload bajo mutex: simple y correcto. Los cooldowns en
+memoria se pierden en el reload (aceptable; las keys nuevas/disabled pesan
+más que cooldowns efímeros de 429).

@@ -12,6 +12,7 @@ import (
 
 	"astreoGateway/internal/keypool"
 	"astreoGateway/internal/model"
+	"astreoGateway/internal/protocol/openai"
 	"astreoGateway/internal/routing"
 )
 
@@ -78,7 +79,7 @@ func (p *Proxy) forwardOnce(ctx context.Context, prov model.Provider, apiKey mod
 }
 
 func (p *Proxy) forwardOpenAI(ctx context.Context, prov model.Provider, apiKey model.APIKey, body []byte, isStream bool, w http.ResponseWriter) forwardResult {
-	upstreamURL := prov.BaseURL + "/v1/chat/completions"
+	upstreamURL := openai.BuildChatCompletionsURL(prov.BaseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, bytes.NewReader(body))
 	if err != nil {
 		return forwardResult{err: fmt.Errorf("new request: %w", err)}

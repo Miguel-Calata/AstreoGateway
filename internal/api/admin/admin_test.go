@@ -19,7 +19,7 @@ import (
 
 var nopLogger = slog.New(slog.NewTextHandler(nil, &slog.HandlerOptions{Level: slog.LevelError + 1}))
 
-func testSetup(t *testing.T) (*chi.Mux, string) {
+func testSetup(t *testing.T) (*chi.Mux, string, *keypool.Pool) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "test.db"))
@@ -36,7 +36,7 @@ func testSetup(t *testing.T) (*chi.Mux, string) {
 	}
 	pool := keypool.New()
 	cache := discovery.New(db, pool, 5*time.Minute, 5*time.Second, nopLogger)
-	adminHandler, err := NewRouter(db, secret, cache)
+	adminHandler, err := NewRouter(db, secret, cache, pool)
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}
@@ -44,7 +44,7 @@ func testSetup(t *testing.T) (*chi.Mux, string) {
 	r.Route("/admin/api", func(r chi.Router) {
 		r.Mount("/", adminHandler)
 	})
-	return r, secret
+	return r, secret, pool
 }
 
 func jsonBody(v any) *bytes.Buffer {
@@ -53,7 +53,7 @@ func jsonBody(v any) *bytes.Buffer {
 }
 
 func TestBootstrapNeeded(t *testing.T) {
-	r, _ := testSetup(t)
+	r, _, _ := testSetup(t)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -73,7 +73,7 @@ func TestBootstrapNeeded(t *testing.T) {
 }
 
 func TestBootstrapCreate(t *testing.T) {
-	r, _ := testSetup(t)
+	r, _, _ := testSetup(t)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -98,7 +98,7 @@ func TestBootstrapCreate(t *testing.T) {
 }
 
 func TestBootstrapRejectsSecond(t *testing.T) {
-	r, _ := testSetup(t)
+	r, _, _ := testSetup(t)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -120,7 +120,7 @@ func TestBootstrapRejectsSecond(t *testing.T) {
 }
 
 func TestLoginLogout(t *testing.T) {
-	r, _ := testSetup(t)
+	r, _, _ := testSetup(t)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -155,7 +155,7 @@ func TestLoginLogout(t *testing.T) {
 }
 
 func TestLoginWrongPassword(t *testing.T) {
-	r, _ := testSetup(t)
+	r, _, _ := testSetup(t)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -177,7 +177,7 @@ func TestLoginWrongPassword(t *testing.T) {
 }
 
 func TestSessionRequiresAuth(t *testing.T) {
-	r, _ := testSetup(t)
+	r, _, _ := testSetup(t)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -192,7 +192,7 @@ func TestSessionRequiresAuth(t *testing.T) {
 }
 
 func TestSessionWithAuth(t *testing.T) {
-	r, _ := testSetup(t)
+	r, _, _ := testSetup(t)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -221,7 +221,7 @@ func TestSessionWithAuth(t *testing.T) {
 }
 
 func TestProvidersCRUD(t *testing.T) {
-	r, _ := testSetup(t)
+	r, _, _ := testSetup(t)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -287,7 +287,7 @@ func TestProvidersCRUD(t *testing.T) {
 }
 
 func TestAliasesCRUD(t *testing.T) {
-	r, _ := testSetup(t)
+	r, _, _ := testSetup(t)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 
@@ -344,8 +344,87 @@ func TestAliasesCRUD(t *testing.T) {
 	_ = resp3.Body.Close()
 }
 
+func TestAPIKeysCRUDAndKeypoolReload(t *testing.T) {
+	r, _, pool := testSetup(t)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	loginResp, _ := http.Post(ts.URL+"/admin/api/bootstrap", "application/json",
+		jsonBody(map[string]string{"username": "admin", "password": "password123"}))
+	cookie := loginResp.Header.Get("Set-Cookie")
+
+	doReq := func(method, path string, body any) *http.Response {
+		var req *http.Request
+		if body != nil {
+			b, _ := json.Marshal(body)
+			req, _ = http.NewRequest(method, ts.URL+path, bytes.NewBuffer(b))
+			req.Header.Set("Content-Type", "application/json")
+		} else {
+			req, _ = http.NewRequest(method, ts.URL+path, nil)
+		}
+		req.Header.Set("Cookie", cookie)
+		resp, _ := http.DefaultClient.Do(req)
+		return resp
+	}
+
+	provResp := doReq("POST", "/admin/api/providers", map[string]any{
+		"name": "openai", "protocol": "openai", "base_url": "https://api.openai.com/v1", "enabled": true,
+	})
+	var prov map[string]any
+	json.NewDecoder(provResp.Body).Decode(&prov)
+	_ = provResp.Body.Close()
+	providerID := prov["id"].(string)
+
+	if _, ok := pool.Get(providerID); ok {
+		t.Fatal("pool should be empty before creating key")
+	}
+
+	resp := doReq("POST", "/admin/api/providers/"+providerID+"/api-keys", map[string]any{
+		"label": "main", "key_value": "sk-live-test", "priority": 0, "enabled": true,
+	})
+	if resp.StatusCode != 201 {
+		t.Fatalf("create key: expected 201, got %d", resp.StatusCode)
+	}
+	var created map[string]any
+	json.NewDecoder(resp.Body).Decode(&created)
+	_ = resp.Body.Close()
+	keyID := created["id"].(string)
+
+	got, ok := pool.Get(providerID)
+	if !ok || got.Value != "sk-live-test" {
+		t.Fatalf("pool should have new key after create, got %+v ok=%v", got, ok)
+	}
+
+	resp2 := doReq("GET", "/admin/api/providers/"+providerID+"/api-keys", nil)
+	if resp2.StatusCode != 200 {
+		t.Fatalf("list: expected 200, got %d", resp2.StatusCode)
+	}
+	_ = resp2.Body.Close()
+
+	resp3 := doReq("PUT", "/admin/api/api-keys/"+keyID, map[string]any{
+		"label": "main", "key_value": "sk-rotated", "priority": 0, "enabled": true,
+	})
+	if resp3.StatusCode != 200 {
+		t.Fatalf("update: expected 200, got %d", resp3.StatusCode)
+	}
+	_ = resp3.Body.Close()
+	got, ok = pool.Get(providerID)
+	if !ok || got.Value != "sk-rotated" {
+		t.Fatalf("pool should have rotated key, got %+v ok=%v", got, ok)
+	}
+
+	resp4 := doReq("DELETE", "/admin/api/api-keys/"+keyID, nil)
+	if resp4.StatusCode != 204 {
+		t.Fatalf("delete: expected 204, got %d", resp4.StatusCode)
+	}
+	_ = resp4.Body.Close()
+	if _, ok := pool.Get(providerID); ok {
+		t.Fatal("pool should be empty after delete")
+	}
+}
+
 func TestGatewayKeysCRUD(t *testing.T) {
-	r, _ := testSetup(t)
+	r, _, _ := testSetup(t)
 	ts := httptest.NewServer(r)
 	defer ts.Close()
 

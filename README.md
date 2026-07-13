@@ -11,8 +11,8 @@ hable OpenAI (Cursor, Continue, Open WebUI, LibreChat, Cline, opencode, ...).
 
 ## Estado
 
-**Backend core usable** (admin API, discovery, chat OpenAI/Anthropic con
-traducción). UI embebida, embeddings y métricas/health están pendientes.
+**Backend core usable** (admin API, discovery, chat OpenAI/Anthropic,
+embeddings OpenAI, healthz). UI embebida y métricas ricas pendientes.
 Ver milestones en `AGENTS.md`.
 
 | Área | Estado |
@@ -23,9 +23,10 @@ Ver milestones en `AGENTS.md`.
 | Proxy OpenAI → OpenAI | Hecho |
 | Traducción Anthropic (texto + tools v1) | Hecho |
 | UI admin embebida | Pendiente (501) |
-| `/v1/embeddings` | Pendiente (501) |
-| Métricas + health | Pendiente |
-| Docker + docs de deploy | Parcial |
+| `/v1/embeddings` | Hecho (OpenAI-only; Anthropic → 400) |
+| Health (`/healthz`) | Hecho |
+| Métricas / dashboard | Pendiente |
+| Docker + docs de deploy | Hecho (buildable) |
 
 ## Quick start
 
@@ -67,10 +68,11 @@ curl -s http://localhost:8080/v1/chat/completions \
 |----------|--------|
 | `GET /v1/models` | Implementado — modelos `provider:model` + alias |
 | `POST /v1/chat/completions` | Implementado — passthrough OpenAI o traducción Anthropic |
-| `POST /v1/embeddings` | Stub 501 (milestone 7) |
+| `POST /v1/embeddings` | Implementado — passthrough OpenAI; Anthropic → 400 |
 | `/admin/api/*` | Implementado — bootstrap, auth, CRUD, discovery |
 | `/admin/*` (UI) | Stub 501 (milestone 3) |
-| Health / métricas | No existen aún (milestone 8) |
+| `GET /healthz` | Implementado — ping DB + uptime |
+| Métricas / dashboard | Pendiente (milestone 8) |
 
 **Auth:** bearer `gateway_keys` en `/v1/*`; cookie sesión HMAC en `/admin/api/*`
 tras bootstrap.
@@ -85,15 +87,23 @@ tras bootstrap.
 
 Sin prefijo: se busca como alias. Si no existe → 404.
 
+## Docker
+
+```bash
+docker build -t aigw .
+docker run --rm -p 8080:8080 -v aigw-data:/app/data aigw
+curl -s http://localhost:8080/healthz
+```
+
+Persistencia: montar un volume en `/app/data` (el CMD usa `-db /app/data/aigw.db`).
+La imagen runtime es distroless (sin shell); el probe de salud es HTTP a
+`GET /healthz` desde fuera (orchestrator / compose con imagen auxiliar).
+
 ## Known issues
 
-- El keypool de API keys solo se carga al arranque; crear/editar/borrar keys
-  en admin no recarga el pool hasta reiniciar.
-- La URL de chat OpenAI concatena `BaseURL + "/v1/chat/completions"`; si el
-  base ya incluye `/v1` puede quedar `.../v1/v1/...`.
 - List/get de API keys de proveedor en admin devuelve el secret en JSON.
 - Cookie de sesión admin sin flag `Secure`.
-- UI no embebida; Dockerfile usa Go 1.22 mientras `go.mod` declara 1.25.
+- UI no embebida (`/admin/*` → 501).
 
 ## Documentación
 

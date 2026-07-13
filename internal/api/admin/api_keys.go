@@ -3,29 +3,40 @@ package admin
 import (
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
+	"astreoGateway/internal/keypool"
 	"astreoGateway/internal/model"
 	"astreoGateway/internal/store"
 
 	"github.com/go-chi/chi/v5"
 )
 
-func apiKeysRouter(db *sql.DB) http.Handler {
+func apiKeysRouter(db *sql.DB, pool *keypool.Pool) http.Handler {
 	r := chi.NewRouter()
 	r.Route("/{keyID}", func(r chi.Router) {
 		r.Get("/", getAPIKey(db))
-		r.Put("/", updateAPIKey(db))
-		r.Delete("/", deleteAPIKey(db))
+		r.Put("/", updateAPIKey(db, pool))
+		r.Delete("/", deleteAPIKey(db, pool))
 	})
 	return r
 }
 
-func providerAPIKeysRouter(db *sql.DB) http.Handler {
+func providerAPIKeysRouter(db *sql.DB, pool *keypool.Pool) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/", listAPIKeys(db))
-	r.Post("/", createAPIKey(db))
+	r.Post("/", createAPIKey(db, pool))
 	return r
+}
+
+func reloadPool(pool *keypool.Pool, db *sql.DB) {
+	if pool == nil {
+		return
+	}
+	if err := pool.Load(db); err != nil {
+		slog.Error("keypool: reload after api_key change", "err", err)
+	}
 }
 
 func listAPIKeys(db *sql.DB) http.HandlerFunc {
@@ -41,7 +52,7 @@ func listAPIKeys(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func createAPIKey(db *sql.DB) http.HandlerFunc {
+func createAPIKey(db *sql.DB, pool *keypool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		providerID := chi.URLParam(r, "providerID")
 		var k model.APIKey
@@ -61,6 +72,7 @@ func createAPIKey(db *sql.DB) http.HandlerFunc {
 			writeJSON(w, map[string]any{"error": err.Error()})
 			return
 		}
+		reloadPool(pool, db)
 		w.WriteHeader(http.StatusCreated)
 		writeJSON(w, k)
 	}
@@ -84,7 +96,7 @@ func getAPIKey(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func updateAPIKey(db *sql.DB) http.HandlerFunc {
+func updateAPIKey(db *sql.DB, pool *keypool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "keyID")
 		existing, err := store.GetAPIKeyByID(db, id)
@@ -106,11 +118,12 @@ func updateAPIKey(db *sql.DB) http.HandlerFunc {
 			writeJSON(w, map[string]any{"error": err.Error()})
 			return
 		}
+		reloadPool(pool, db)
 		writeJSON(w, k)
 	}
 }
 
-func deleteAPIKey(db *sql.DB) http.HandlerFunc {
+func deleteAPIKey(db *sql.DB, pool *keypool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "keyID")
 		if err := store.DeleteAPIKey(db, id); err != nil {
@@ -123,6 +136,7 @@ func deleteAPIKey(db *sql.DB) http.HandlerFunc {
 			writeJSON(w, map[string]any{"error": err.Error()})
 			return
 		}
+		reloadPool(pool, db)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

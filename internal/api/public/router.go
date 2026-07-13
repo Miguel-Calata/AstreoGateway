@@ -19,9 +19,7 @@ func NewRouter(db *sql.DB, cache *discovery.Cache, prox *proxy.Proxy, sel *routi
 	r.Use(RequireGatewayKey(db))
 	r.Get("/models", listModels(db, cache))
 	r.Post("/chat/completions", chatHandler(prox, sel, logger))
-	r.HandleFunc("/embeddings", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, `{"error":"embeddings not yet available (milestone 7)"}`, http.StatusNotImplemented)
-	})
+	r.Post("/embeddings", embeddingsHandler(prox, sel, logger))
 	return r
 }
 

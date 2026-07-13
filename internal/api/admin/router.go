@@ -5,11 +5,12 @@ import (
 	"net/http"
 
 	"astreoGateway/internal/discovery"
+	"astreoGateway/internal/keypool"
 
 	"github.com/go-chi/chi/v5"
 )
 
-func NewRouter(db *sql.DB, secret string, cache *discovery.Cache) (http.Handler, error) {
+func NewRouter(db *sql.DB, secret string, cache *discovery.Cache, pool *keypool.Pool) (http.Handler, error) {
 	r := chi.NewRouter()
 
 	r.Get("/bootstrap", bootstrapHandler(db))
@@ -23,9 +24,9 @@ func NewRouter(db *sql.DB, secret string, cache *discovery.Cache) (http.Handler,
 		r.Get("/session", sessionHandler(db))
 		r.Mount("/providers", providersRouter(db))
 		r.Route("/providers/{providerID}/api-keys", func(r chi.Router) {
-			r.Mount("/", providerAPIKeysRouter(db))
+			r.Mount("/", providerAPIKeysRouter(db, pool))
 		})
-		r.Mount("/api-keys", apiKeysRouter(db))
+		r.Mount("/api-keys", apiKeysRouter(db, pool))
 		r.Mount("/aliases", aliasesRouter(db))
 		r.Mount("/gateway-keys", gatewayKeysRouter(db))
 		r.Mount("/discovery", discoveryRouter(cache))
