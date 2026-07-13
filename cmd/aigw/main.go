@@ -48,6 +48,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	if n, err := store.CountAdminUsers(db); err != nil {
+		logger.Warn("could not count admin users", "err", err)
+	} else if n == 0 {
+		logger.Warn("no admin users — bootstrap at /admin/ or POST /admin/api/bootstrap")
+	}
+
 	secret, err := admin.EnsureSecret(db)
 	if err != nil {
 		logger.Error("failed to ensure admin secret", "err", err)
@@ -94,7 +100,7 @@ func main() {
 		Addr:         cfg.Addr,
 		Handler:      r,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		WriteTimeout: 0,
 		IdleTimeout:  120 * time.Second,
 	}
 

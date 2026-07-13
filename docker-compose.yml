@@ -1,0 +1,15 @@
+services:
+  aigw:
+    build: .
+    image: aigw:local
+    ports:
+      - "8080:8080"
+    volumes:
+      - aigw-data:/app/data
+    environment:
+      AIGW_LOG_LEVEL: info
+      # AIGW_COOKIE_SECURE: "true"   # descomentar detrás de HTTPS
+    restart: unless-stopped
+
+volumes:
+  aigw-data:

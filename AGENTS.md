@@ -120,8 +120,11 @@ cd ui && npm install && npm run build
 
 - **Provider secrets en SQLite**: `api_keys.key_value` se guarda en claro en DB
   (list/get admin ya no lo devuelven; create sí, una vez).
-- **WriteTimeout 60s** del HTTP server vs proxy timeout default 120s: streams
-  largos pueden cortarse a nivel server antes que el client upstream.
+
+## Deploy
+
+Sprints de deploy en `docs/deploy-sprints.mc` (S01–S05 done).
+Runbook de producción: `docs/deploy.md`.
 
 ## Convenciones
 

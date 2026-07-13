@@ -5,7 +5,9 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -19,6 +21,12 @@ var migrationsFS embed.FS
 // Open opens (creating if needed) the SQLite database and enables pragmatic
 // settings suitable for a single-process gateway.
 func Open(dbPath string) (*sql.DB, error) {
+	if dir := filepath.Dir(dbPath); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("create db dir %s: %w", dir, err)
+		}
+	}
+
 	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)", dbPath)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {

@@ -26,7 +26,8 @@ Ver milestones en `AGENTS.md`.
 | `/v1/embeddings` | Hecho (OpenAI-only; Anthropic → 400) |
 | Health (`/healthz`) | Hecho |
 | Métricas / dashboard | Pendiente |
-| Docker + docs de deploy | Hecho (multi-stage Node→Go) |
+| Docker (compose + volume) | Hecho |
+| Runbook deploy (`docs/deploy.md`) | Hecho |
 
 ## Quick start
 
@@ -106,23 +107,29 @@ Sin prefijo: se busca como alias. Si no existe → 404.
 ## Docker
 
 ```bash
+# Preferido
+docker compose up --build -d
+curl -s http://localhost:8080/healthz
+
+# Alternativa (un solo contenedor)
 docker build -t aigw .
 docker run --rm -p 8080:8080 -v aigw-data:/app/data aigw
 curl -s http://localhost:8080/healthz
 ```
 
-Persistencia: montar un volume en `/app/data` (el CMD usa `-db /app/data/aigw.db`).
-La imagen runtime es distroless (sin shell); el probe de salud es HTTP a
-`GET /healthz` desde fuera (orchestrator / compose con imagen auxiliar).
+Persistencia: volume named `aigw-data` montado en `/app/data`. La imagen runtime
+es distroless (sin shell); el probe de salud es HTTP a `GET /healthz` desde fuera
+(orchestrator / compose sidecar).
+
+Producción (proxy, permisos nonroot, backup, upgrade): ver [`docs/deploy.md`](docs/deploy.md).
 
 ## Known issues
 
 - Secrets de proveedor se guardan en claro en SQLite (no se devuelven en list/get).
-- `WriteTimeout` del server (60s) puede cortar streams más largos que el proxy timeout.
-  Para streams largos (chat, embeddings), considerar `WriteTimeout: 0` o listener separado.
 
 ## Documentación
 
 - `AGENTS.md` — stack, estructura, milestones, convenciones.
+- `docs/deploy.md` — runbook de producción (compose, proxy, backup, upgrade).
 - `docs/decisions.md` — decisiones de diseño con rationale.
 - `docs/translation-gaps.md` — gaps de traducción Anthropic↔OpenAI.
