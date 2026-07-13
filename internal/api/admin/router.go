@@ -22,7 +22,7 @@ func NewRouter(db *sql.DB, secret string, cache *discovery.Cache, pool *keypool.
 			return RequireAdmin(secret, next)
 		})
 		r.Get("/session", sessionHandler(db))
-		r.Mount("/providers", providersRouter(db))
+		r.Mount("/providers", providersRouter(db, cache))
 		r.Route("/providers/{providerID}/api-keys", func(r chi.Router) {
 			r.Mount("/", providerAPIKeysRouter(db, pool))
 		})

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Alias, type ApiKey, type Provider, type RoutingMode } from "./api";
+import { api, type Alias, type ApiKey, type DiscoveryMap, type Provider, type RoutingMode } from "./api";
 
 const q = {
   bootstrap: ["bootstrap"] as const,
@@ -44,20 +44,33 @@ export const useBootstrapMutation = () => {
 };
 
 // --- Providers ---
+// initialDataUpdatedAt: 0 → treat as stale immediately so mount still fetches
+// (plain initialData + staleTime would skip the network call).
 export const useProviders = () =>
-  useQuery({ queryKey: q.providers, queryFn: () => api.listProviders().then((d) => d ?? []), initialData: [] });
+  useQuery({
+    queryKey: q.providers,
+    queryFn: () => api.listProviders().then((d) => d ?? []),
+    initialData: [],
+    initialDataUpdatedAt: 0,
+  });
 export const useCreateProvider = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (b: Provider) => api.createProvider(b),
-    onSuccess: () => qc.invalidateQueries({ queryKey: q.providers }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: q.providers });
+      qc.invalidateQueries({ queryKey: q.discovery });
+    },
   });
 };
 export const useUpdateProvider = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: Provider }) => api.updateProvider(id, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: q.providers }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: q.providers });
+      qc.invalidateQueries({ queryKey: q.discovery });
+    },
   });
 };
 export const useDeleteProvider = () => {
@@ -80,37 +93,58 @@ export const useApiKeys = (pid: string, enabled = true) =>
     queryFn: () => api.listApiKeys(pid).then((d) => d ?? []),
     enabled,
     initialData: [],
+    initialDataUpdatedAt: 0,
   });
 export const useCreateApiKey = (pid: string) => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (b: ApiKey) => api.createApiKey(pid, b),
-    onSuccess: () => qc.invalidateQueries({ queryKey: q.apiKeys(pid) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: q.apiKeys(pid) });
+      qc.invalidateQueries({ queryKey: q.discovery });
+      qc.invalidateQueries({ queryKey: q.stale });
+    },
   });
 };
 export const useUpdateApiKey = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: ApiKey }) => api.updateApiKey(id, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["api-keys"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["api-keys"] });
+      qc.invalidateQueries({ queryKey: q.discovery });
+      qc.invalidateQueries({ queryKey: q.stale });
+    },
   });
 };
 export const useDeleteApiKey = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.deleteApiKey(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["api-keys"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["api-keys"] });
+      qc.invalidateQueries({ queryKey: q.discovery });
+      qc.invalidateQueries({ queryKey: q.stale });
+    },
   });
 };
 
 // --- Aliases ---
 export const useAliases = () =>
-  useQuery({ queryKey: q.aliases, queryFn: () => api.listAliases().then((d) => d ?? []), initialData: [] });
+  useQuery({
+    queryKey: q.aliases,
+    queryFn: () => api.listAliases().then((d) => d ?? []),
+    initialData: [],
+    initialDataUpdatedAt: 0,
+  });
 export const useCreateAlias = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (b: Alias) => api.createAlias(b),
-    onSuccess: () => qc.invalidateQueries({ queryKey: q.aliases }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: q.aliases });
+      qc.invalidateQueries({ queryKey: q.stale });
+    },
   });
 };
 export const useUpdateAlias = () => {
@@ -136,7 +170,12 @@ export const useDeleteAlias = () => {
 
 // --- Gateway keys ---
 export const useGatewayKeys = () =>
-  useQuery({ queryKey: q.gatewayKeys, queryFn: () => api.listGatewayKeys().then((d) => d ?? []), initialData: [] });
+  useQuery({
+    queryKey: q.gatewayKeys,
+    queryFn: () => api.listGatewayKeys().then((d) => d ?? []),
+    initialData: [],
+    initialDataUpdatedAt: 0,
+  });
 export const useCreateGatewayKey = () => {
   const qc = useQueryClient();
   return useMutation({
@@ -153,13 +192,25 @@ export const useDeleteGatewayKey = () => {
 };
 
 // --- Discovery ---
-export const useDiscovery = () => useQuery({ queryKey: q.discovery, queryFn: api.discoveryModels });
+export const useDiscovery = () =>
+  useQuery({
+    queryKey: q.discovery,
+    queryFn: async () => {
+      const d = await api.discoveryModels();
+      const out: DiscoveryMap = {};
+      for (const [k, v] of Object.entries(d ?? {})) {
+        out[k] = { ...v, models: v.models ?? [] };
+      }
+      return out;
+    },
+  });
 export const useStale = (pollMs = 60_000) => {
   const r = useQuery({
     queryKey: q.stale,
     queryFn: () => api.discoveryStale().then((d) => d ?? []),
     refetchInterval: pollMs,
     initialData: [],
+    initialDataUpdatedAt: 0,
   });
   return r.data ?? [];
 };

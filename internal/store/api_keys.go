@@ -41,7 +41,7 @@ func ListAPIKeysByProvider(db *sql.DB, providerID string) ([]model.APIKey, error
 	}
 	defer rows.Close()
 
-	var out []model.APIKey
+	out := make([]model.APIKey, 0)
 	for rows.Next() {
 		var k model.APIKey
 		var enabled int

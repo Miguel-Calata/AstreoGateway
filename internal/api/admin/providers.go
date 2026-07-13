@@ -5,20 +5,21 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"astreoGateway/internal/discovery"
 	"astreoGateway/internal/model"
 	"astreoGateway/internal/store"
 
 	"github.com/go-chi/chi/v5"
 )
 
-func providersRouter(db *sql.DB) http.Handler {
+func providersRouter(db *sql.DB, cache *discovery.Cache) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/", listProviders(db))
 	r.Post("/", createProvider(db))
 	r.Route("/{providerID}", func(r chi.Router) {
 		r.Get("/", getProvider(db))
 		r.Put("/", updateProvider(db))
-		r.Delete("/", deleteProvider(db))
+		r.Delete("/", deleteProvider(db, cache))
 	})
 	return r
 }
@@ -111,7 +112,7 @@ func updateProvider(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func deleteProvider(db *sql.DB) http.HandlerFunc {
+func deleteProvider(db *sql.DB, cache *discovery.Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "providerID")
 		if err := store.DeleteProvider(db, id); err != nil {
@@ -123,6 +124,9 @@ func deleteProvider(db *sql.DB) http.HandlerFunc {
 			w.WriteHeader(http.StatusInternalServerError)
 			writeJSON(w, map[string]any{"error": err.Error()})
 			return
+		}
+		if cache != nil {
+			cache.Remove(id)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

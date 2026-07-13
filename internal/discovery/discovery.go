@@ -157,10 +157,14 @@ func (c *Cache) Snapshot() map[string]ProviderSnapshot {
 	defer c.mu.RUnlock()
 	out := make(map[string]ProviderSnapshot, len(c.entries))
 	for id, e := range c.entries {
+		models := e.models
+		if models == nil {
+			models = []Model{}
+		}
 		s := ProviderSnapshot{
-			Models:    e.models,
+			Models:    models,
 			FetchedAt: e.fetchedAt,
-			Count:     len(e.models),
+			Count:     len(models),
 		}
 		if e.err != nil {
 			s.Error = e.err.Error()
@@ -170,9 +174,18 @@ func (c *Cache) Snapshot() map[string]ProviderSnapshot {
 	return out
 }
 
+func (c *Cache) Remove(providerID string) {
+	c.mu.Lock()
+	delete(c.entries, providerID)
+	c.mu.Unlock()
+}
+
 func (c *Cache) InjectTestModels(providerID string, models []Model) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if models == nil {
+		models = []Model{}
+	}
 	c.entries[providerID] = providerEntry{
 		models:    models,
 		fetchedAt: time.Now(),
@@ -183,6 +196,11 @@ func (c *Cache) StaleTargets() []StaleTarget {
 	c.mu.RLock()
 	known := make(map[string]map[string]bool)
 	for pid, e := range c.entries {
+		// Only mark stale after a successful discovery (or a prior success still holding models).
+		// No entry / never-succeeded error → unknown, not stale.
+		if e.fetchedAt.IsZero() && len(e.models) == 0 {
+			continue
+		}
 		m := make(map[string]bool)
 		for _, model := range e.models {
 			m[model.ModelID] = true
@@ -194,13 +212,16 @@ func (c *Cache) StaleTargets() []StaleTarget {
 	aliases, err := store.ListAliases(c.db)
 	if err != nil {
 		c.logger.Error("discovery: list aliases", "err", err)
-		return nil
+		return []StaleTarget{}
 	}
-	var stale []StaleTarget
+	stale := make([]StaleTarget, 0)
 	for _, alias := range aliases {
 		for _, t := range alias.Targets {
-			models := known[t.ProviderID]
-			if models == nil || !models[t.ModelName] {
+			models, ok := known[t.ProviderID]
+			if !ok {
+				continue
+			}
+			if !models[t.ModelName] {
 				stale = append(stale, StaleTarget{
 					AliasID:    alias.ID,
 					AliasName:  alias.Name,
@@ -218,16 +239,24 @@ func (c *Cache) refreshProvider(ctx context.Context, providerID string) error {
 	if err != nil {
 		return fmt.Errorf("get provider: %w", err)
 	}
-	if prov == nil || !prov.Enabled {
-		return nil
+	if prov == nil {
+		return fmt.Errorf("provider not found")
+	}
+	if !prov.Enabled {
+		return fmt.Errorf("provider is disabled")
 	}
 
 	apiKey, ok := c.pool.Get(providerID)
 	if !ok {
 		c.mu.Lock()
+		prev := c.entries[providerID]
+		models := prev.models
+		if models == nil {
+			models = []Model{}
+		}
 		c.entries[providerID] = providerEntry{
-			models:    c.entries[providerID].models,
-			fetchedAt: c.entries[providerID].fetchedAt,
+			models:    models,
+			fetchedAt: prev.fetchedAt,
 			err:       fmt.Errorf("no enabled API keys"),
 		}
 		c.mu.Unlock()
@@ -237,15 +266,23 @@ func (c *Cache) refreshProvider(ctx context.Context, providerID string) error {
 	models, err := c.fetchModels(ctx, prov, apiKey.Value)
 	if err != nil {
 		c.mu.Lock()
+		prev := c.entries[providerID]
+		kept := prev.models
+		if kept == nil {
+			kept = []Model{}
+		}
 		c.entries[providerID] = providerEntry{
-			models:    c.entries[providerID].models,
-			fetchedAt: c.entries[providerID].fetchedAt,
+			models:    kept,
+			fetchedAt: prev.fetchedAt,
 			err:       err,
 		}
 		c.mu.Unlock()
 		return err
 	}
 
+	if models == nil {
+		models = []Model{}
+	}
 	c.mu.Lock()
 	c.entries[providerID] = providerEntry{
 		models:    models,

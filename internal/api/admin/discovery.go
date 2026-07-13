@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"strings"
 
 	"astreoGateway/internal/discovery"
 
@@ -34,11 +35,20 @@ func discoveryRefreshHandler(cache *discovery.Cache) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		providerID := r.URL.Query().Get("provider")
 		if providerID == "" {
-			http.Error(w, `{"error":"provider query param required"}`, http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]any{"error": "provider query param required"})
 			return
 		}
 		if err := cache.Refresh(r.Context(), providerID); err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusInternalServerError)
+			msg := err.Error()
+			status := http.StatusInternalServerError
+			if strings.Contains(msg, "provider not found") {
+				status = http.StatusNotFound
+			} else if strings.Contains(msg, "provider is disabled") {
+				status = http.StatusBadRequest
+			}
+			w.WriteHeader(status)
+			writeJSON(w, map[string]any{"error": msg})
 			return
 		}
 		writeJSON(w, map[string]string{"status": "refreshed", "provider": providerID})

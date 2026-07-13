@@ -268,6 +268,56 @@ func TestNoKeysPreservesEntry(t *testing.T) {
 	if err.Error() != "no enabled API keys for provider prov1" {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
+	snap := cache.Snapshot()["prov1"]
+	if snap.Models == nil {
+		t.Fatal("expected non-nil models slice in snapshot")
+	}
+	if len(snap.Models) != 0 {
+		t.Fatalf("expected empty models, got %d", len(snap.Models))
+	}
+	if snap.Error == "" {
+		t.Fatal("expected error string in snapshot")
+	}
+}
+
+func TestStaleRequiresSuccessfulDiscovery(t *testing.T) {
+	cache, _, cleanup := testCache(t)
+	defer cleanup()
+	db := cache.db
+
+	seedProvider(t, db, "prov1", "openai", "openai", "http://unused")
+	seedAlias(t, db, "alias-1", "coding", "failover", []model.AliasTarget{
+		{ProviderID: "prov1", ModelName: "gpt-5", Position: 0},
+	})
+
+	// No discovery yet → not stale
+	if stale := cache.StaleTargets(); len(stale) != 0 {
+		t.Fatalf("expected 0 stale before discovery, got %d", len(stale))
+	}
+
+	// Failed first refresh (no keys) → still not stale
+	_ = cache.refreshProvider(context.Background(), "prov1")
+	if stale := cache.StaleTargets(); len(stale) != 0 {
+		t.Fatalf("expected 0 stale after failed discovery, got %d", len(stale))
+	}
+
+	// Successful discovery without gpt-5 → stale
+	cache.InjectTestModels("prov1", []Model{{ProviderID: "prov1", ModelID: "other"}})
+	stale := cache.StaleTargets()
+	if len(stale) != 1 || stale[0].ModelName != "gpt-5" {
+		t.Fatalf("expected gpt-5 stale after successful discovery, got %#v", stale)
+	}
+}
+
+func TestRemoveClearsEntry(t *testing.T) {
+	cache, _, cleanup := testCache(t)
+	defer cleanup()
+	cache.InjectTestModels("prov1", []Model{{ProviderID: "prov1", ModelID: "gpt-5"}})
+	cache.Remove("prov1")
+	if _, ok := cache.Snapshot()["prov1"]; ok {
+		t.Fatal("expected entry removed from snapshot")
+	}
 }
 
 

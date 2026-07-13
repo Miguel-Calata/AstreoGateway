@@ -169,8 +169,9 @@ func TestResolveAliasExcludesStale(t *testing.T) {
 		{ProviderID: "p2", ModelName: "gpt-4o", Position: 1},
 	})
 
-	// p1 has no discovered models → gpt-5 is stale
+	// p1 discovered without gpt-5 → gpt-5 is stale
 	// p2 has gpt-4o in cache
+	e.cache.InjectTestModels("p1", []discovery.Model{{ProviderID: "p1", ModelID: "other"}})
 	e.cache.InjectTestModels("p2", []discovery.Model{{ProviderID: "p2", ModelID: "gpt-4o"}})
 
 	r, err := e.sel.Resolve("coding")
@@ -191,7 +192,8 @@ func TestResolveAliasAllStale(t *testing.T) {
 		{ProviderID: "p1", ModelName: "gpt-5", Position: 0},
 	})
 
-	// No models injected → all targets stale
+	// Successful discovery without the target model → stale
+	e.cache.InjectTestModels("p1", []discovery.Model{{ProviderID: "p1", ModelID: "other"}})
 	_, err := e.sel.Resolve("coding")
 	if err != ErrAliasNoTargets {
 		t.Fatalf("expected ErrAliasNoTargets, got %v", err)

@@ -51,7 +51,7 @@ func ListGatewayKeys(db *sql.DB) ([]model.GatewayKey, error) {
 	}
 	defer rows.Close()
 
-	var out []model.GatewayKey
+	out := make([]model.GatewayKey, 0)
 	for rows.Next() {
 		var k model.GatewayKey
 		var enabled int

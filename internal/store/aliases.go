@@ -81,7 +81,7 @@ func ListAliases(db *sql.DB) ([]model.Alias, error) {
 	}
 	defer rows.Close()
 
-	var out []model.Alias
+	out := make([]model.Alias, 0)
 	for rows.Next() {
 		var a model.Alias
 		var enabled int
@@ -149,7 +149,7 @@ func listAliasTargets(db *sql.DB, aliasID string) ([]model.AliasTarget, error) {
 	}
 	defer rows.Close()
 
-	var out []model.AliasTarget
+	out := make([]model.AliasTarget, 0)
 	for rows.Next() {
 		var t model.AliasTarget
 		if err := rows.Scan(&t.ProviderID, &t.ModelName, &t.Position); err != nil {

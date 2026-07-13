@@ -50,7 +50,7 @@ func ListProviders(db *sql.DB) ([]model.Provider, error) {
 	}
 	defer rows.Close()
 
-	var out []model.Provider
+	out := make([]model.Provider, 0)
 	for rows.Next() {
 		var p model.Provider
 		var headersJSON string

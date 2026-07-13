@@ -12,7 +12,7 @@ export function formatUptime(seconds: number): string {
 
 export function formatRelative(iso: string): string {
   const t = new Date(iso).getTime();
-  if (!t || Number.isNaN(t)) return "—";
+  if (!Number.isFinite(t) || t <= 0) return "—";
   const diff = Date.now() - t;
   const abs = Math.abs(diff);
   const fmt = (v: number, u: string) => `${diff >= 0 ? "" : "in "}${v}${u}${diff >= 0 ? " ago" : ""}`;
