@@ -6,7 +6,7 @@ import {
 } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Plus, Trash2, X } from "lucide-react";
+import { FileUp, GripVertical, Plus, Trash2, X } from "lucide-react";
 import {
   useAliases, useCreateAlias, useUpdateAlias, useDeleteAlias, useDiscovery, useProviders, ROUTING_MODES,
 } from "@/lib/queries";
@@ -23,7 +23,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
-import { shortId } from "@/lib/format";
+import { ImportAliasesSheet } from "./ImportAliasesSheet";
 
 const EMPTY_ALIAS: Alias = { id: "", name: "", routing: "failover", enabled: true, targets: [] };
 
@@ -31,22 +31,39 @@ export function AliasesList() {
   const { data, isLoading } = useAliases();
   const del = useDeleteAlias();
   const [editorOpen, setEditorOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<Alias | undefined>();
 
   const openNew = () => { setEditing(undefined); setEditorOpen(true); };
   const openEdit = (a: Alias) => { setEditing(a); setEditorOpen(true); };
+
+  const headerActions = (
+    <div className="flex flex-wrap gap-2">
+      <Button variant="outline" onClick={() => setImportOpen(true)}><FileUp className="size-4" /> Import</Button>
+      <Button onClick={openNew}><Plus className="size-4" /> New alias</Button>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Aliases"
         description="Friendly model names routing to one or more provider:model targets."
-        actions={<Button onClick={openNew}><Plus className="size-4" /> New alias</Button>}
+        actions={headerActions}
       />
       {isLoading ? (
         <Spinner className="size-6" />
       ) : data.length === 0 ? (
-        <EmptyState title="No aliases yet" hint="Create an alias like `gpt-4` that routes across multiple providers." action={<Button onClick={openNew}><Plus className="size-4" /> New alias</Button>} />
+        <EmptyState
+          title="No aliases yet"
+          hint="Create an alias like `gpt-4` that routes across multiple providers, or import several lines at once."
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button variant="outline" onClick={() => setImportOpen(true)}><FileUp className="size-4" /> Import</Button>
+              <Button onClick={openNew}><Plus className="size-4" /> New alias</Button>
+            </div>
+          }
+        />
       ) : (
         <div className="rounded-lg border border-border">
           <table className="w-full text-sm">
@@ -88,6 +105,7 @@ export function AliasesList() {
         </div>
       )}
       <AliasEditor open={editorOpen} onOpenChange={setEditorOpen} alias={editing} />
+      <ImportAliasesSheet open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }
