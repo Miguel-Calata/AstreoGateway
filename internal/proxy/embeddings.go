@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"astreoGateway/internal/model"
+	"astreoGateway/internal/protocol"
 	"astreoGateway/internal/protocol/openai"
 	"astreoGateway/internal/routing"
 )
@@ -17,7 +18,7 @@ func (p *Proxy) Embeddings(ctx context.Context, w http.ResponseWriter, sel *rout
 		writeProxyError(w, err)
 		return
 	}
-	if resolved.Provider.Protocol == "anthropic" {
+	if resolved.Provider.Protocol == "" || !protocol.Get(resolved.Provider.Protocol).SupportsEmbeddings() {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", "protocol does not support embeddings")
 		return
 	}
@@ -103,7 +104,7 @@ func (p *Proxy) forwardEmbeddingsWithFailover(ctx context.Context, w http.Respon
 		}
 		key := nextTarget.ProviderID + ":" + nextTarget.ModelName
 		tried[key] = true
-		if nextProv.Protocol == "anthropic" {
+		if !protocol.Get(nextProv.Protocol).SupportsEmbeddings() {
 			continue
 		}
 

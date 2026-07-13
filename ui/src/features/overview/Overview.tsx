@@ -4,6 +4,7 @@ import { useAliases, useGatewayKeys, useProviders, useStale } from "@/lib/querie
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/PageHeader";
+import { protocolVariant } from "@/lib/format";
 
 export function Overview() {
   const providers = useProviders();
@@ -41,7 +42,7 @@ export function Overview() {
                   <li key={p.id} className="flex items-center justify-between">
                     <Link to={`/providers/${p.id}`} className="font-medium hover:text-primary">{p.name}</Link>
                     <div className="flex items-center gap-2">
-                      <Badge variant={p.protocol === "anthropic" ? "warning" : "secondary"}>{p.protocol}</Badge>
+                      <Badge variant={protocolVariant(p.protocol)}>{p.protocol}</Badge>
                       <Badge variant={p.enabled ? "success" : "secondary"}>{p.enabled ? "on" : "off"}</Badge>
                     </div>
                   </li>

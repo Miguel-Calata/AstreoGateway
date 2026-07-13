@@ -114,8 +114,9 @@ export function ProviderEditor({
               <Select value={form.protocol} onValueChange={(v) => set({ protocol: v as Provider["protocol"] })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="openai">openai</SelectItem>
-                  <SelectItem value="anthropic">anthropic</SelectItem>
+<SelectItem value="openai">openai</SelectItem>
+<SelectItem value="anthropic">anthropic</SelectItem>
+<SelectItem value="gemini">gemini</SelectItem>
                 </SelectContent>
               </Select>
             </div>

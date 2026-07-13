@@ -8,9 +8,10 @@ import {
 import { ApiError, type ApiKey } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
+import { protocolVariant } from "@/lib/format";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -50,7 +51,7 @@ export function ProviderDetail() {
       />
 
       <div className="grid grid-cols-2 gap-4 text-sm">
-        <DetailRow label="Protocol" value={<Badge variant={provider?.protocol === "anthropic" ? "warning" : "secondary"}>{provider?.protocol}</Badge>} />
+        <DetailRow label="Protocol" value={<Badge variant={protocolVariant(provider?.protocol || "")}>{provider?.protocol}</Badge>} />
         <DetailRow label="Enabled" value={provider?.enabled ? "Yes" : "No"} />
         <DetailRow label="Base URL" value={<span className="font-mono text-xs">{provider?.base_url}</span>} />
         <DetailRow label="Headers" value={provider && Object.keys(provider.headers ?? {}).length > 0 ? `${Object.keys(provider.headers).length} custom` : "none"} />

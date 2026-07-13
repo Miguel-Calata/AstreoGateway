@@ -91,3 +91,65 @@ Cuando un parámetro del cliente no tiene equivalente en el proveedor destino:
 Errores 5xx del proveedor durante streaming ya iniciado: se cierra el stream
 del cliente con un evento `error` (formato OpenAI) para que el cliente lo
 interprete como fallo, no como finalización normal.
+
+---
+
+# Gaps de traducción Gemini ↔ OpenAI
+
+v1 cubre texto + tool calling básico + streaming + discovery. Lo demás queda
+fuera para post-v1.
+
+## Cubierto en v1
+
+- Texto (`user`/`assistant` ↔ `user`/`model` + `parts[].text`).
+- System prompt: rol `system` OpenAI ↔ `systemInstruction`.
+- Tools: OpenAI `tools[].function` ↔ `tools[].functionDeclarations`.
+- Tool calls: OpenAI `tool_calls` ↔ `parts[].functionCall` (args JSON object).
+- Tool results: rol `tool` ↔ `parts[].functionResponse` en rol `user`
+  (`response: {"result": "<content>"}`).
+- `tool_choice`: `auto`→`AUTO`, `required`→`ANY`, `none`→`NONE`,
+  función concreta → `ANY` + `allowedFunctionNames`.
+- Streaming SSE (`:streamGenerateContent?alt=sse`) → `chat.completion.chunk`.
+- Finish reasons: `STOP`→`stop`, `MAX_TOKENS`→`length`,
+  `SAFETY`/`RECITATION`/…→`content_filter`; presencia de `functionCall`→
+  `tool_calls`.
+- Usage: `usageMetadata` ↔ `usage`.
+- Discovery: lista modelos, strip de prefijo `models/`, filtro
+  `generateContent`.
+
+## Gaps conocidos (no cubiertos en v1)
+
+### Tipos de contenido
+- **Multimodal** (`inlineData` imagen/audio/video): no se traduce; image
+  inputs OpenAI → 400.
+- **Thoughts / thinking parts**: no se reenvían al cliente.
+
+### Sampling / request
+- **`topK`**: Gemini sí; OpenAI chat no estándar → no se reenvía desde el
+  cliente.
+- **`n` / múltiples candidates**: se fuerza un solo candidate.
+- **`logprobs`**: no soportado.
+- **`response_format` / JSON mode**: no mapeado a Gemini
+  `responseMimeType` / schema en v1.
+- **`seed`**, **presence/frequency_penalty**: descartados.
+
+### Tool calling
+- **IDs de tool call**: Gemini no siempre expone id estable; v1 sintetiza
+  `call_<i>` en la respuesta OpenAI.
+- **functionResponse envelope**: se envuelve el content string como
+  `{"result": "..."}`; no se rehidrata JSON estructurado del cliente.
+- **Parallel tool calls**: se traducen múltiples parts; sin flag de
+  paralelismo.
+
+### Streaming
+- Gemini emite chunks con el mismo shape que la response completa; no hay
+  eventos tipados Anthropic-style. v1 acumula deltas de texto y functionCall
+  completo por chunk.
+- Usage suele llegar en el chunk final; se emite en el chunk de cierre si
+  `stream_options.include_usage`.
+
+### API surface
+- **Interactions API** (stateful v1beta2): no usada; solo `generateContent`.
+- **Embeddings** (`:embedContent`): rechazado en el gateway (400).
+- **Vertex AI** vs AI Studio: se asume AI Studio
+  (`generativelanguage.googleapis.com` + `x-goog-api-key`).

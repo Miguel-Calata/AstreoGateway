@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"astreoGateway/internal/protocol/openai"
+	"astreoGateway/internal/protocol/core"
 )
 
 func TranslateStream(r io.Reader, w http.ResponseWriter, model string, includeUsage bool, logger *slog.Logger) error {
@@ -19,7 +19,7 @@ func TranslateStream(r io.Reader, w http.ResponseWriter, model string, includeUs
 	w.WriteHeader(http.StatusOK)
 
 	flusher, canFlush := w.(http.Flusher)
-	writeChunk := func(chunk openai.ChatChunk) error {
+	writeChunk := func(chunk core.ChatChunk) error {
 		b, err := json.Marshal(chunk)
 		if err != nil {
 			return err
@@ -46,7 +46,7 @@ func TranslateStream(r io.Reader, w http.ResponseWriter, model string, includeUs
 	toolIndexByBlock := map[int]int{}
 	nextToolIdx := 0
 	var finishReason *string
-	var usage *openai.Usage
+	var usage *core.Usage
 
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -74,20 +74,20 @@ func TranslateStream(r io.Reader, w http.ResponseWriter, model string, includeUs
 				msgID = "chatcmpl-" + ev.Message.ID
 			}
 			if ev.Message != nil {
-				usage = &openai.Usage{
+				usage = &core.Usage{
 					PromptTokens:     ev.Message.Usage.InputTokens,
 					CompletionTokens: ev.Message.Usage.OutputTokens,
 					TotalTokens:      ev.Message.Usage.InputTokens + ev.Message.Usage.OutputTokens,
 				}
 			}
 			role := "assistant"
-			return writeChunk(openai.ChatChunk{
+			return writeChunk(core.ChatChunk{
 				ID:     msgID,
 				Object: "chat.completion.chunk",
 				Model:  model,
-				Choices: []openai.ChunkChoice{{
+				Choices: []core.ChunkChoice{{
 					Index: 0,
-					Delta: openai.ChunkDelta{Role: role},
+					Delta: core.ChunkDelta{Role: role},
 				}},
 			})
 		case "content_block_start":
@@ -96,18 +96,18 @@ func TranslateStream(r io.Reader, w http.ResponseWriter, model string, includeUs
 				toolIndexByBlock[ev.Index] = idx
 				nextToolIdx++
 				i := idx
-				return writeChunk(openai.ChatChunk{
+				return writeChunk(core.ChatChunk{
 					ID:     msgID,
 					Object: "chat.completion.chunk",
 					Model:  model,
-					Choices: []openai.ChunkChoice{{
+					Choices: []core.ChunkChoice{{
 						Index: 0,
-						Delta: openai.ChunkDelta{
-							ToolCalls: []openai.ToolCall{{
+						Delta: core.ChunkDelta{
+							ToolCalls: []core.ToolCall{{
 								Index: &i,
 								ID:    ev.ContentBlock.ID,
 								Type:  "function",
-								Function: openai.FunctionCall{
+								Function: core.FunctionCall{
 									Name:      ev.ContentBlock.Name,
 									Arguments: "",
 								},
@@ -122,13 +122,13 @@ func TranslateStream(r io.Reader, w http.ResponseWriter, model string, includeUs
 			}
 			switch ev.Delta.Type {
 			case "text_delta":
-				return writeChunk(openai.ChatChunk{
+				return writeChunk(core.ChatChunk{
 					ID:     msgID,
 					Object: "chat.completion.chunk",
 					Model:  model,
-					Choices: []openai.ChunkChoice{{
+					Choices: []core.ChunkChoice{{
 						Index: 0,
-						Delta: openai.ChunkDelta{Content: ev.Delta.Text},
+						Delta: core.ChunkDelta{Content: ev.Delta.Text},
 					}},
 				})
 			case "input_json_delta":
@@ -139,17 +139,17 @@ func TranslateStream(r io.Reader, w http.ResponseWriter, model string, includeUs
 					nextToolIdx++
 				}
 				i := idx
-				return writeChunk(openai.ChatChunk{
+				return writeChunk(core.ChatChunk{
 					ID:     msgID,
 					Object: "chat.completion.chunk",
 					Model:  model,
-					Choices: []openai.ChunkChoice{{
+					Choices: []core.ChunkChoice{{
 						Index: 0,
-						Delta: openai.ChunkDelta{
-							ToolCalls: []openai.ToolCall{{
+						Delta: core.ChunkDelta{
+							ToolCalls: []core.ToolCall{{
 								Index: &i,
 								Type:  "function",
-								Function: openai.FunctionCall{
+								Function: core.FunctionCall{
 									Arguments: ev.Delta.PartialJSON,
 								},
 							}},
@@ -164,7 +164,7 @@ func TranslateStream(r io.Reader, w http.ResponseWriter, model string, includeUs
 			}
 			if ev.Usage != nil {
 				if usage == nil {
-					usage = &openai.Usage{}
+					usage = &core.Usage{}
 				}
 				usage.CompletionTokens = ev.Usage.OutputTokens
 				if usage.PromptTokens == 0 {
@@ -173,13 +173,13 @@ func TranslateStream(r io.Reader, w http.ResponseWriter, model string, includeUs
 				usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 			}
 		case "message_stop":
-			chunk := openai.ChatChunk{
+			chunk := core.ChatChunk{
 				ID:     msgID,
 				Object: "chat.completion.chunk",
 				Model:  model,
-				Choices: []openai.ChunkChoice{{
+				Choices: []core.ChunkChoice{{
 					Index:        0,
-					Delta:        openai.ChunkDelta{},
+					Delta:        core.ChunkDelta{},
 					FinishReason: finishReason,
 				}},
 			}

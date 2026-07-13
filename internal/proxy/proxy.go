@@ -12,7 +12,7 @@ import (
 
 	"astreoGateway/internal/keypool"
 	"astreoGateway/internal/model"
-	"astreoGateway/internal/protocol/openai"
+	"astreoGateway/internal/protocol"
 	"astreoGateway/internal/routing"
 )
 
@@ -72,20 +72,29 @@ func (p *Proxy) ChatCompletions(ctx context.Context, w http.ResponseWriter, sel 
 }
 
 func (p *Proxy) forwardOnce(ctx context.Context, prov model.Provider, apiKey model.APIKey, body []byte, isStream bool, w http.ResponseWriter) forwardResult {
-	if prov.Protocol == "anthropic" {
-		return p.forwardAnthropic(ctx, prov, apiKey, body, isStream, w)
+	proto := protocol.Get(prov.Protocol)
+	if proto == nil {
+		return forwardResult{status: http.StatusBadRequest, err: fmt.Errorf("unsupported protocol: %s", prov.Protocol)}
 	}
-	return p.forwardOpenAI(ctx, prov, apiKey, body, isStream, w)
+	return p.forward(ctx, proto, prov, apiKey, body, isStream, w)
 }
 
-func (p *Proxy) forwardOpenAI(ctx context.Context, prov model.Provider, apiKey model.APIKey, body []byte, isStream bool, w http.ResponseWriter) forwardResult {
-	upstreamURL := openai.BuildChatCompletionsURL(prov.BaseURL)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, bytes.NewReader(body))
+func (p *Proxy) forward(ctx context.Context, proto protocol.Protocol, prov model.Provider, apiKey model.APIKey, body []byte, isStream bool, w http.ResponseWriter) forwardResult {
+	upstreamBody, parsedReq, err := proto.TranslateRequest(body)
+	if err != nil {
+		b, _ := json.Marshal(map[string]any{
+			"error": map[string]string{"message": err.Error(), "type": "invalid_request"},
+		})
+		return forwardResult{status: http.StatusBadRequest, body: b}
+	}
+
+	chatURL, _ := proto.ChatURL(prov.BaseURL, parsedReq.Model, isStream)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatURL, bytes.NewReader(upstreamBody))
 	if err != nil {
 		return forwardResult{err: fmt.Errorf("new request: %w", err)}
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey.Value)
+	proto.AuthHeaders(req, apiKey.Value)
 	for k, v := range prov.Headers {
 		req.Header.Set(k, v)
 	}
@@ -103,46 +112,30 @@ func (p *Proxy) forwardOpenAI(ctx context.Context, prov model.Provider, apiKey m
 		p.pool.MarkCooldown(prov.ID, apiKey.ID, p.keyCooldown)
 	}
 
-	if isStream && resp.StatusCode == http.StatusOK {
-		return p.forwardStream(w, resp)
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return forwardResult{status: resp.StatusCode, body: wrapUpstreamError(b, resp.StatusCode), header: resp.Header}
 	}
-	return p.bufferJSON(resp)
-}
 
-func (p *Proxy) forwardStream(w http.ResponseWriter, resp *http.Response) forwardResult {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
-
-	flusher, canFlush := w.(http.Flusher)
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				return forwardResult{status: 200, err: werr, wrote: true}
-			}
-			if canFlush {
-				flusher.Flush()
-			}
+	if isStream {
+		includeUsage := parsedReq.StreamOpts != nil && parsedReq.StreamOpts.IncludeUsage
+		if err := proto.TranslateStream(resp.Body, w, parsedReq.Model, includeUsage, p.logger); err != nil {
+			return forwardResult{status: 200, err: err, wrote: true}
 		}
-		if err != nil {
-			if err != io.EOF {
-				return forwardResult{status: 200, err: err, wrote: true}
-			}
-			break
-		}
+		return forwardResult{status: 200, wrote: true}
 	}
-	return forwardResult{status: 200, wrote: true}
-}
 
-func (p *Proxy) bufferJSON(resp *http.Response) forwardResult {
-	body, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return forwardResult{status: resp.StatusCode, err: fmt.Errorf("read body: %w", err)}
 	}
-	return forwardResult{status: resp.StatusCode, body: body, header: resp.Header}
+	translated, err := proto.TranslateResponse(respBody, parsedReq.Model)
+	if err != nil {
+		return forwardResult{err: err}
+	}
+	h := resp.Header.Clone()
+	h.Set("Content-Type", "application/json")
+	return forwardResult{status: 200, body: translated, header: h}
 }
 
 func (p *Proxy) writeJSONResponse(w http.ResponseWriter, result forwardResult) {
@@ -158,6 +151,14 @@ func (p *Proxy) writeJSONResponse(w http.ResponseWriter, result forwardResult) {
 	}
 	w.WriteHeader(result.status)
 	w.Write(result.body)
+}
+
+func (p *Proxy) bufferJSON(resp *http.Response) forwardResult {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return forwardResult{status: resp.StatusCode, err: fmt.Errorf("read body: %w", err)}
+	}
+	return forwardResult{status: resp.StatusCode, body: body, header: resp.Header}
 }
 
 func (p *Proxy) forwardWithFailover(ctx context.Context, w http.ResponseWriter, resolved *routing.Resolved, sel *routing.Selector, directive string, body []byte, isStream bool) {
@@ -211,6 +212,30 @@ func (p *Proxy) forwardWithFailover(ctx context.Context, w http.ResponseWriter, 
 		}
 		result = nextResult
 	}
+}
+
+func wrapUpstreamError(body []byte, status int) []byte {
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err == nil {
+		if errObj, ok := raw["error"].(map[string]any); ok {
+			msg, _ := errObj["message"].(string)
+			if msg == "" {
+				msg = string(body)
+			}
+			b, _ := json.Marshal(map[string]any{
+				"error": map[string]string{"message": msg, "type": "upstream_error"},
+			})
+			return b
+		}
+	}
+	msg := string(body)
+	if msg == "" {
+		msg = fmt.Sprintf("upstream status %d", status)
+	}
+	b, _ := json.Marshal(map[string]any{
+		"error": map[string]string{"message": msg, "type": "upstream_error"},
+	})
+	return b
 }
 
 func rewriteModel(body []byte, modelName string) ([]byte, error) {

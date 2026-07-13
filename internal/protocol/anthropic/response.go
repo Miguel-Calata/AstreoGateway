@@ -4,16 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"astreoGateway/internal/protocol/openai"
+	"astreoGateway/internal/protocol/core"
 )
 
-func AnthropicToOpenAI(resp *MessagesResponse, model string) (*openai.ChatResponse, error) {
+func AnthropicToOpenAI(resp *MessagesResponse, model string) (*core.ChatResponse, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("nil anthropic response")
 	}
-	msg := openai.ChatMessage{Role: "assistant"}
+	msg := core.ChatMessage{Role: "assistant"}
 	var textParts []string
-	var toolCalls []openai.ToolCall
+	var toolCalls []core.ToolCall
 	for _, b := range resp.Content {
 		switch b.Type {
 		case "text":
@@ -23,10 +23,10 @@ func AnthropicToOpenAI(resp *MessagesResponse, model string) (*openai.ChatRespon
 			if len(b.Input) > 0 {
 				args = string(b.Input)
 			}
-			toolCalls = append(toolCalls, openai.ToolCall{
+			toolCalls = append(toolCalls, core.ToolCall{
 				ID:   b.ID,
 				Type: "function",
-				Function: openai.FunctionCall{
+				Function: core.FunctionCall{
 					Name:      b.Name,
 					Arguments: args,
 				},
@@ -43,16 +43,16 @@ func AnthropicToOpenAI(resp *MessagesResponse, model string) (*openai.ChatRespon
 		msg.ToolCalls = toolCalls
 	}
 
-	out := &openai.ChatResponse{
+	out := &core.ChatResponse{
 		ID:     "chatcmpl-" + resp.ID,
 		Object: "chat.completion",
 		Model:  model,
-		Choices: []openai.Choice{{
+		Choices: []core.Choice{{
 			Index:        0,
 			Message:      msg,
 			FinishReason: mapStopReason(resp.StopReason),
 		}},
-		Usage: &openai.Usage{
+		Usage: &core.Usage{
 			PromptTokens:     resp.Usage.InputTokens,
 			CompletionTokens: resp.Usage.OutputTokens,
 			TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,

@@ -13,6 +13,7 @@ import (
 
 	"astreoGateway/internal/discovery"
 	"astreoGateway/internal/keypool"
+	_ "astreoGateway/internal/protocol/registry"
 	"astreoGateway/internal/store"
 
 	"github.com/go-chi/chi/v5"

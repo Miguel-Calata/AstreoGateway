@@ -15,6 +15,7 @@ import (
 
 	"astreoGateway/internal/discovery"
 	"astreoGateway/internal/keypool"
+	_ "astreoGateway/internal/protocol/registry"
 	"astreoGateway/internal/routing"
 	"astreoGateway/internal/store"
 )

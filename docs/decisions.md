@@ -132,17 +132,17 @@ post-v1.
   el del cliente (OpenAI→OpenAI). Cero parsing, mínima latencia, binario
   ligero.
 - **Traducción evento a evento** cuando los protocolos difieren
-  (Anthropic→OpenAI client). `protocol/anthropic/stream.go` +
-  `proxy/anthropic.go` parsean cada SSE upstream y re-serializan al formato
-  del cliente.
+  (Anthropic/Gemini→OpenAI client). Cada paquete `protocol/<name>/stream.go`
+  implementa `Protocol.TranslateStream` y re-serializa SSE al formato OpenAI.
 
-Dos code paths, justificados por el peso del parsing de traducción.
+Dos code paths, justificados por el peso del parsing de traducción. El
+despacho es vía `protocol.Get(prov.Protocol)`.
 
 ## 10. `/v1/embeddings`
 
-Solo rutear a proveedores con protocolo OpenAI. Si el target resuelto
-(directamente o vía alias) es Anthropic → `400 "protocol does not support
-embeddings"`. Anthropic no tiene endpoint de embeddings.
+Solo rutear a proveedores con `SupportsEmbeddings() == true` (hoy: OpenAI).
+Si el target resuelto es Anthropic o Gemini → `400 "protocol does not support
+embeddings"`.
 
 ## 11. Sin CGO
 
@@ -192,3 +192,23 @@ Helper: `protocol/openai.BuildChatCompletionsURL`.
 keys en admin. Full reload bajo mutex: simple y correcto. Los cooldowns en
 memoria se pierden en el reload (aceptable; las keys nuevas/disabled pesan
 más que cooldowns efímeros de 429).
+
+## 16. Traducción Gemini v1
+
+Protocolo REST `v1beta` stateless (`generateContent` /
+`streamGenerateContent?alt=sse`). No se usa la API Interactions stateful.
+
+Alcance v1:
+- Texto (`contents` + `parts` con `text`).
+- System prompt → `systemInstruction`.
+- Tool calling básico: `tools.functionDeclarations` ↔ OpenAI `tools`;
+  `functionCall` / `functionResponse` ↔ `tool_calls` / rol `tool`.
+- Streaming SSE (`alt=sse`) traducido a `chat.completion.chunk`.
+- Discovery: `GET .../v1beta/models`, filtrado por
+  `supportedGenerationMethods` que incluya `generateContent`.
+- Auth: header `x-goog-api-key`.
+- Modelo en la URL (`modelInURL=true`); no en el body.
+- `base_url` flexible: con o sin sufijo `/v1beta` (el builder no duplica).
+
+Embeddings: rechazados (`SupportsEmbeddings=false`). Gaps en
+`docs/translation-gaps.md`.

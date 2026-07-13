@@ -11,6 +11,7 @@ import (
 	"astreoGateway/internal/discovery"
 	"astreoGateway/internal/keypool"
 	"astreoGateway/internal/model"
+	"astreoGateway/internal/protocol"
 	"astreoGateway/internal/store"
 )
 
@@ -96,7 +97,7 @@ func (s *Selector) resolveDirect(providerRef, modelName string) (*Resolved, erro
 	if prov == nil || !prov.Enabled {
 		return nil, ErrProviderNotFound
 	}
-	if prov.Protocol != "openai" && prov.Protocol != "anthropic" {
+	if protocol.Get(prov.Protocol) == nil {
 		return nil, ErrProtocolMismatch
 	}
 	apiKey, ok := s.pool.Get(prov.ID)

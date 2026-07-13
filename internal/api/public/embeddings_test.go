@@ -13,6 +13,7 @@ import (
 	"astreoGateway/internal/keypool"
 	"astreoGateway/internal/model"
 	"astreoGateway/internal/proxy"
+	_ "astreoGateway/internal/protocol/registry"
 	"astreoGateway/internal/routing"
 	"astreoGateway/internal/store"
 

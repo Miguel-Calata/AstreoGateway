@@ -4,7 +4,7 @@ export interface Provider {
   id: string;
   name: string;
   slug: string;
-  protocol: "openai" | "anthropic";
+  protocol: "openai" | "anthropic" | "gemini";
   base_url: string;
   enabled: boolean;
   headers: Record<string, string>;

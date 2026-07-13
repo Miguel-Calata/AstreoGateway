@@ -8,6 +8,7 @@ import (
 
 	"astreoGateway/internal/discovery"
 	"astreoGateway/internal/model"
+	"astreoGateway/internal/protocol"
 	"astreoGateway/internal/store"
 
 	"github.com/go-chi/chi/v5"
@@ -84,9 +85,9 @@ func createProvider(db *sql.DB) http.HandlerFunc {
 			writeJSON(w, map[string]any{"error": msg})
 			return
 		}
-		if p.Protocol != "openai" && p.Protocol != "anthropic" {
+		if err := protocol.Validate(p.Protocol); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			writeJSON(w, map[string]any{"error": "protocol must be openai or anthropic"})
+			writeJSON(w, map[string]any{"error": err.Error()})
 			return
 		}
 		if p.Headers == nil {
@@ -140,6 +141,11 @@ func updateProvider(db *sql.DB) http.HandlerFunc {
 		if msg := validateProviderSlug(p.Slug); msg != "" {
 			w.WriteHeader(http.StatusBadRequest)
 			writeJSON(w, map[string]any{"error": msg})
+			return
+		}
+		if err := protocol.Validate(p.Protocol); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]any{"error": err.Error()})
 			return
 		}
 		if p.Headers == nil {

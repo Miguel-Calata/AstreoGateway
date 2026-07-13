@@ -26,3 +26,9 @@ export function shortId(id: string, n = 6): string {
   if (!id) return "—";
   return id.length <= n + 2 ? id : `${id.slice(0, n)}…`;
 }
+
+export function protocolVariant(p: string): "secondary" | "warning" | "default" {
+  if (p === "anthropic") return "warning";
+  if (p === "gemini") return "default";
+  return "secondary";
+}

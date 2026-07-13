@@ -1,26 +1,16 @@
 package openai
 
 import (
-	"encoding/json"
-	"fmt"
 	"io"
+
+	"astreoGateway/internal/protocol/core"
 )
 
-type ModelEntry struct {
-	ID      string `json:"id"`
-	Object  string `json:"object,omitempty"`
-	OwnedBy string `json:"owned_by,omitempty"`
-}
+// Re-export core types for backward compatibility.
+type ModelEntry = core.ModelEntry
+type ModelsResponse = core.ModelsResponse
 
-type ModelsResponse struct {
-	Object string       `json:"object"`
-	Data   []ModelEntry `json:"data"`
-}
-
+// ParseModelsResponse delegates to core.ParseModelsResponse.
 func ParseModelsResponse(r io.Reader) (*ModelsResponse, error) {
-	var resp ModelsResponse
-	if err := json.NewDecoder(r).Decode(&resp); err != nil {
-		return nil, fmt.Errorf("decode models response: %w", err)
-	}
-	return &resp, nil
+	return core.ParseModelsResponse(r)
 }

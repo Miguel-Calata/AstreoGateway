@@ -1,42 +1,43 @@
-package anthropic
+package gemini
 
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"astreoGateway/internal/protocol/core"
 )
 
-func OpenAIToAnthropic(req *core.ChatRequest, modelName string) (*MessagesRequest, error) {
-	out := &MessagesRequest{
-		Model:       modelName,
-		Stream:      req.Stream,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		MaxTokens:   DefaultMaxTokens,
-	}
-	if req.MaxTokens != nil && *req.MaxTokens > 0 {
-		out.MaxTokens = *req.MaxTokens
-	}
+const DefaultMaxOutputTokens = 8192
 
+func OpenAIToGemini(req *core.ChatRequest, modelName string) (*GenerateContentRequest, error) {
+	_ = modelName
+	out := &GenerateContentRequest{}
+
+	cfg := &GenerationConfig{MaxOutputTokens: DefaultMaxOutputTokens}
+	if req.MaxTokens != nil && *req.MaxTokens > 0 {
+		cfg.MaxOutputTokens = *req.MaxTokens
+	}
+	cfg.Temperature = req.Temperature
+	cfg.TopP = req.TopP
 	if stops, err := parseStop(req.Stop); err != nil {
 		return nil, err
 	} else if len(stops) > 0 {
-		out.StopSequences = stops
+		cfg.StopSequences = stops
 	}
+	out.GenerationConfig = cfg
 
 	var systemParts []string
-	var messages []Message
-	var pendingToolResults []ContentBlock
+	var contents []Content
+	var pendingToolParts []Part
+	toolNameByID := map[string]string{}
 
 	flushToolResults := func() {
-		if len(pendingToolResults) == 0 {
+		if len(pendingToolParts) == 0 {
 			return
 		}
-		messages = append(messages, Message{Role: "user", Content: pendingToolResults})
-		pendingToolResults = nil
+		contents = append(contents, Content{Role: "user", Parts: pendingToolParts})
+		pendingToolParts = nil
 	}
 
 	for _, m := range req.Messages {
@@ -51,46 +52,58 @@ func OpenAIToAnthropic(req *core.ChatRequest, modelName string) (*MessagesReques
 			}
 		case "user":
 			flushToolResults()
-			blocks, err := openAIContentToBlocks(m.Content)
+			parts, err := openAIContentToParts(m.Content)
 			if err != nil {
 				return nil, err
 			}
-			messages = append(messages, Message{Role: "user", Content: blocks})
+			contents = append(contents, Content{Role: "user", Parts: parts})
 		case "assistant":
 			flushToolResults()
-			var blocks []ContentBlock
+			var parts []Part
 			if len(m.Content) > 0 && string(m.Content) != "null" {
-				b, err := openAIContentToBlocks(m.Content)
+				p, err := openAIContentToParts(m.Content)
 				if err != nil {
 					return nil, err
 				}
-				blocks = append(blocks, b...)
+				parts = append(parts, p...)
 			}
 			for _, tc := range m.ToolCalls {
-				input := json.RawMessage(tc.Function.Arguments)
-				if !json.Valid(input) {
-					input = json.RawMessage("{}")
+				args := json.RawMessage(tc.Function.Arguments)
+				if !json.Valid(args) {
+					args = json.RawMessage("{}")
 				}
-				blocks = append(blocks, ContentBlock{
-					Type:  "tool_use",
-					ID:    tc.ID,
-					Name:  tc.Function.Name,
-					Input: input,
+				if tc.ID != "" && tc.Function.Name != "" {
+					toolNameByID[tc.ID] = tc.Function.Name
+				}
+				parts = append(parts, Part{
+					FunctionCall: &FunctionCall{
+						Name: tc.Function.Name,
+						Args: args,
+					},
 				})
 			}
-			if len(blocks) == 0 {
-				blocks = []ContentBlock{{Type: "text", Text: ""}}
+			if len(parts) == 0 {
+				parts = []Part{{Text: ""}}
 			}
-			messages = append(messages, Message{Role: "assistant", Content: blocks})
+			contents = append(contents, Content{Role: "model", Parts: parts})
 		case "tool":
 			text, err := contentToText(m.Content)
 			if err != nil {
 				return nil, err
 			}
-			pendingToolResults = append(pendingToolResults, ContentBlock{
-				Type:      "tool_result",
-				ToolUseID: m.ToolCallID,
-				Content:   text,
+			name := m.Name
+			if name == "" {
+				name = toolNameByID[m.ToolCallID]
+			}
+			if name == "" {
+				name = m.ToolCallID
+			}
+			respObj, _ := json.Marshal(map[string]string{"result": text})
+			pendingToolParts = append(pendingToolParts, Part{
+				FunctionResponse: &FunctionResponse{
+					Name:     name,
+					Response: respObj,
+				},
 			})
 		default:
 			return nil, fmt.Errorf("unsupported role: %s", m.Role)
@@ -99,27 +112,29 @@ func OpenAIToAnthropic(req *core.ChatRequest, modelName string) (*MessagesReques
 	flushToolResults()
 
 	if len(systemParts) > 0 {
-		out.System = strings.Join(systemParts, "\n\n")
+		out.SystemInstruction = &Content{
+			Parts: []Part{{Text: strings.Join(systemParts, "\n\n")}},
+		}
 	}
-	if len(messages) == 0 {
+	if len(contents) == 0 {
 		return nil, fmt.Errorf("no messages after filtering system")
 	}
-	out.Messages = messages
+	out.Contents = contents
 
 	if len(req.Tools) > 0 {
-		tools := make([]Tool, 0, len(req.Tools))
+		decls := make([]FunctionDeclaration, 0, len(req.Tools))
 		for _, t := range req.Tools {
 			schema := t.Function.Parameters
 			if len(schema) == 0 {
 				schema = json.RawMessage(`{"type":"object","properties":{}}`)
 			}
-			tools = append(tools, Tool{
+			decls = append(decls, FunctionDeclaration{
 				Name:        t.Function.Name,
 				Description: t.Function.Description,
-				InputSchema: schema,
+				Parameters:  schema,
 			})
 		}
-		out.Tools = tools
+		out.Tools = []Tool{{FunctionDeclarations: decls}}
 	}
 
 	if len(req.ToolChoice) > 0 {
@@ -127,7 +142,7 @@ func OpenAIToAnthropic(req *core.ChatRequest, modelName string) (*MessagesReques
 		if err != nil {
 			return nil, err
 		}
-		out.ToolChoice = tc
+		out.ToolConfig = tc
 	}
 
 	return out, nil
@@ -180,19 +195,19 @@ func contentToText(raw json.RawMessage) (string, error) {
 	return b.String(), nil
 }
 
-func openAIContentToBlocks(raw json.RawMessage) ([]ContentBlock, error) {
+func openAIContentToParts(raw json.RawMessage) ([]Part, error) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return []ContentBlock{{Type: "text", Text: ""}}, nil
+		return []Part{{Text: ""}}, nil
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		return []ContentBlock{{Type: "text", Text: s}}, nil
+		return []Part{{Text: s}}, nil
 	}
 	var parts []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &parts); err != nil {
 		return nil, fmt.Errorf("invalid content: %w", err)
 	}
-	var blocks []ContentBlock
+	var out []Part
 	for _, p := range parts {
 		typ := ""
 		_ = json.Unmarshal(p["type"], &typ)
@@ -202,31 +217,32 @@ func openAIContentToBlocks(raw json.RawMessage) ([]ContentBlock, error) {
 		case "text", "":
 			var t string
 			_ = json.Unmarshal(p["text"], &t)
-			blocks = append(blocks, ContentBlock{Type: "text", Text: t})
+			out = append(out, Part{Text: t})
 		default:
 			return nil, fmt.Errorf("unsupported content type: %s", typ)
 		}
 	}
-	if len(blocks) == 0 {
-		blocks = []ContentBlock{{Type: "text", Text: ""}}
+	if len(out) == 0 {
+		out = []Part{{Text: ""}}
 	}
-	return blocks, nil
+	return out, nil
 }
 
-func mapToolChoice(raw json.RawMessage) (json.RawMessage, error) {
+func mapToolChoice(raw json.RawMessage) (*ToolConfig, error) {
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
+		mode := "AUTO"
 		switch s {
 		case "auto":
-			return json.Marshal(map[string]string{"type": "auto"})
+			mode = "AUTO"
 		case "required":
-			return json.Marshal(map[string]string{"type": "any"})
+			mode = "ANY"
 		case "none":
-			slog.Debug("tool_choice none not supported by Anthropic; sending auto")
-			return json.Marshal(map[string]string{"type": "auto"})
+			mode = "NONE"
 		default:
 			return nil, fmt.Errorf("unsupported tool_choice: %s", s)
 		}
+		return &ToolConfig{FunctionCallingConfig: &FunctionCallingConfig{Mode: mode}}, nil
 	}
 	var obj struct {
 		Type     string `json:"type"`
@@ -238,7 +254,10 @@ func mapToolChoice(raw json.RawMessage) (json.RawMessage, error) {
 		return nil, fmt.Errorf("invalid tool_choice: %w", err)
 	}
 	if obj.Type == "function" && obj.Function.Name != "" {
-		return json.Marshal(map[string]string{"type": "tool", "name": obj.Function.Name})
+		return &ToolConfig{FunctionCallingConfig: &FunctionCallingConfig{
+			Mode:                 "ANY",
+			AllowedFunctionNames: []string{obj.Function.Name},
+		}}, nil
 	}
-	return json.Marshal(map[string]string{"type": "auto"})
+	return &ToolConfig{FunctionCallingConfig: &FunctionCallingConfig{Mode: "AUTO"}}, nil
 }

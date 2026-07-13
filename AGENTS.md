@@ -22,13 +22,16 @@ internal/
   config/          env + flags
   model/           tipos de dominio (structs puros)
   store/           SQLite + migraciones embebidas + repositorios
-  protocol/
-    openai/        tipos + parse/serialize SSE OpenAI
+  protocol/        interfaz Protocol + registry (despacho por protocol string)
+    core/          tipos OpenAI-lingua-franca compartidos
+    openai/        passthrough OpenAI-compatible
     anthropic/     traducción bidireccional (texto + tool básico en v1)
+    gemini/        traducción Gemini REST v1beta (texto + tool + stream v1)
+    registry/      Register(openai|anthropic|gemini) en init
   discovery/       GET /v1/models por proveedor, cache TTL, marcaje stale
   routing/         random / round_robin / priority / failover
   keypool/         selección de keys por proveedor + cooldown
-  proxy/           passthrough o traducción según protocolo
+  proxy/           forward genérico vía protocol.Get (passthrough o Translate*)
   api/public/      /v1/* (OpenAI-compatible), auth gateway-keys
   api/admin/       /admin/api/* (CRUD), auth admin
   web/             assets SPA embebidos (embed.FS) con fallback a index.html
@@ -87,13 +90,17 @@ cd ui && npm install && npm run build
    `gateway_keys`). Sin key válida → 401 en `/v1/*`.
 7. **Admin bootstrap**: la 1ª vez `/admin` está abierto; se crea el primer
    usuario admin desde dentro. Tras eso, cookie HMAC + bcrypt.
-8. **Traducción Anthropic v1**: texto + tool calling básico. Gaps documentados
-   en `docs/translation-gaps.md`.
-9. **Streaming**: passthrough byte-stream cuando el protocolo del proveedor
-   coincide con el del cliente; traducción evento a evento cuando no.
-10. **`/v1/embeddings`**: solo rutear a proveedores con protocolo OpenAI; si el
-    target resuelto es Anthropic → 400.
-11. **Sin CGO**: `modernc.org/sqlite` permite cross-compile y Docker multi-arch
+8. **Traducción Anthropic v1**: texto + tool calling básico. Gaps en
+   `docs/translation-gaps.md`.
+9. **Traducción Gemini v1**: REST `v1beta` (`generateContent` /
+   `streamGenerateContent?alt=sse`), texto + tools + discovery. Modelo en URL;
+   auth `x-goog-api-key`. Gaps en `docs/translation-gaps.md`. Decisiones §16.
+10. **Streaming**: passthrough byte-stream cuando el protocolo del proveedor
+    coincide con el del cliente; traducción evento a evento vía
+    `Protocol.TranslateStream` cuando no.
+11. **`/v1/embeddings`**: solo protocolos con `SupportsEmbeddings()` (OpenAI).
+    Anthropic y Gemini → 400.
+12. **Sin CGO**: `modernc.org/sqlite` permite cross-compile y Docker multi-arch
     sin requisitos especiales.
 
 ## Boot order
@@ -113,9 +120,10 @@ cd ui && npm install && npm run build
 4. Discovery + `/v1/models`            ✓
 5. Proxy passthrough OpenAI→OpenAI     ✓
 6. Traducción Anthropic               ✓ (v1)
-7. `/v1/embeddings`                    ✓
-8. Métricas + estado de salud          parcial (`GET /healthz`; métricas pendientes)
-9. Docker + docs finales               ✓ (Dockerfile alineado a go.mod)
+7. Traducción Gemini                  ✓ (v1: texto + tools + stream + discovery)
+8. `/v1/embeddings`                    ✓
+9. Métricas + estado de salud          parcial (`GET /healthz`; métricas pendientes)
+10. Docker + docs finales              ✓ (Dockerfile alineado a go.mod)
 
 ## Known issues
 

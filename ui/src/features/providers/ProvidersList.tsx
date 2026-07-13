@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TBody, Td, Th, THead, Tr } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { protocolVariant } from "@/lib/format";
 import { EmptyState, PageHeader } from "@/components/PageHeader";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ProviderEditor } from "./ProviderEditor";
@@ -72,7 +73,7 @@ export function ProvidersList() {
                     <Link to={`/providers/${p.id}`} className="font-medium hover:text-primary">{p.name}</Link>
                     <div className="font-mono text-xs text-muted-foreground">{p.slug || p.id}</div>
                   </Td>
-                  <Td><Badge variant={p.protocol === "anthropic" ? "warning" : "secondary"}>{p.protocol}</Badge></Td>
+                  <Td><Badge variant={protocolVariant(p.protocol)}>{p.protocol}</Badge></Td>
                   <Td><span className="font-mono text-xs text-muted-foreground">{p.base_url}</span></Td>
                   <Td>
                     <Switch checked={p.enabled} onCheckedChange={() => toggleEnabled(p)} disabled={upd.isPending} />

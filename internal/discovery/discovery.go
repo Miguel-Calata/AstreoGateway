@@ -4,17 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
-	"path"
-	"strings"
 	"sync"
 	"time"
 
 	"astreoGateway/internal/keypool"
 	"astreoGateway/internal/model"
-	"astreoGateway/internal/protocol/openai"
+	"astreoGateway/internal/protocol"
 	"astreoGateway/internal/store"
 )
 
@@ -293,18 +291,17 @@ func (c *Cache) refreshProvider(ctx context.Context, providerID string) error {
 }
 
 func (c *Cache) fetchModels(ctx context.Context, prov *model.Provider, apiKey string) ([]Model, error) {
-	modelsURL := buildModelsURL(prov.BaseURL)
+	proto := protocol.Get(prov.Protocol)
+	if proto == nil {
+		return nil, fmt.Errorf("unsupported protocol: %s", prov.Protocol)
+	}
+
+	modelsURL := proto.ModelsURL(prov.BaseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("new request: %w", err)
 	}
-	switch prov.Protocol {
-	case "anthropic":
-		req.Header.Set("x-api-key", apiKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
-	default:
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
+	proto.ModelsAuth(req, apiKey)
 	for k, v := range prov.Headers {
 		req.Header.Set(k, v)
 	}
@@ -318,12 +315,17 @@ func (c *Cache) fetchModels(ctx context.Context, prov *model.Provider, apiKey st
 		return nil, fmt.Errorf("upstream %s: status %d", modelsURL, resp.StatusCode)
 	}
 
-	parsed, err := openai.ParseModelsResponse(resp.Body)
+	var body []byte
+	if body, err = io.ReadAll(resp.Body); err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+
+	entries, err := proto.ParseModels(body)
 	if err != nil {
 		return nil, fmt.Errorf("parse: %w", err)
 	}
-	out := make([]Model, 0, len(parsed.Data))
-	for _, m := range parsed.Data {
+	out := make([]Model, 0, len(entries))
+	for _, m := range entries {
 		out = append(out, Model{
 			ProviderID: prov.ID,
 			ModelID:    m.ID,
@@ -333,14 +335,3 @@ func (c *Cache) fetchModels(ctx context.Context, prov *model.Provider, apiKey st
 	return out, nil
 }
 
-func buildModelsURL(base string) string {
-	if base == "" {
-		return "/models"
-	}
-	u, err := url.Parse(base)
-	if err != nil {
-		return strings.TrimRight(base, "/") + "/models"
-	}
-	u.Path = path.Join(u.Path, "models")
-	return u.String()
-}

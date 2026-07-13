@@ -13,6 +13,7 @@ import (
 
 	"astreoGateway/internal/keypool"
 	"astreoGateway/internal/model"
+	_ "astreoGateway/internal/protocol/registry"
 	"astreoGateway/internal/store"
 )
 
@@ -232,24 +233,6 @@ func TestAnthropicProtocolUsesXAPIKey(t *testing.T) {
 	}
 	if gotHeader != "sk-ant-test123456789" {
 		t.Fatalf("expected x-api-key header, got %q", gotHeader)
-	}
-}
-
-func TestBuildModelsURL(t *testing.T) {
-	tests := []struct {
-		base string
-		want string
-	}{
-		{"https://api.openai.com/v1", "https://api.openai.com/v1/models"},
-		{"https://api.openai.com/v1/", "https://api.openai.com/v1/models"},
-		{"http://localhost:8080", "http://localhost:8080/models"},
-		{"", "/models"},
-	}
-	for _, tt := range tests {
-		got := buildModelsURL(tt.base)
-		if got != tt.want {
-			t.Errorf("buildModelsURL(%q) = %q, want %q", tt.base, got, tt.want)
-		}
 	}
 }
 

@@ -14,6 +14,10 @@ func BuildEmbeddingsURL(base string) string {
 	return buildOpenAIURL(base, "embeddings")
 }
 
+func BuildModelsURL(base string) string {
+	return buildOpenAIURL(base, "models")
+}
+
 func buildOpenAIURL(base, segment string) string {
 	if base == "" {
 		return "/" + segment

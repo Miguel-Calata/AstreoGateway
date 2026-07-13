@@ -9,6 +9,7 @@ import (
 	"astreoGateway/internal/discovery"
 	"astreoGateway/internal/keypool"
 	"astreoGateway/internal/model"
+	_ "astreoGateway/internal/protocol/registry"
 	"astreoGateway/internal/store"
 
 	"database/sql"

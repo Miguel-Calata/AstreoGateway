@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"testing"
 
-	"astreoGateway/internal/protocol/openai"
+	"astreoGateway/internal/protocol/core"
 )
 
 func TestOpenAIToAnthropicSystemAndText(t *testing.T) {
-	req := &openai.ChatRequest{
+	req := &core.ChatRequest{
 		Model: "ignored",
-		Messages: []openai.ChatMessage{
+		Messages: []core.ChatMessage{
 			{Role: "system", Content: raw(`"You are helpful"`)},
 			{Role: "user", Content: raw(`"Hello"`)},
 		},
@@ -37,15 +37,15 @@ func TestOpenAIToAnthropicSystemAndText(t *testing.T) {
 }
 
 func TestOpenAIToAnthropicTools(t *testing.T) {
-	req := &openai.ChatRequest{
-		Messages: []openai.ChatMessage{
+	req := &core.ChatRequest{
+		Messages: []core.ChatMessage{
 			{Role: "user", Content: raw(`"call tool"`)},
 			{
 				Role: "assistant",
-				ToolCalls: []openai.ToolCall{{
+				ToolCalls: []core.ToolCall{{
 					ID:   "call_1",
 					Type: "function",
-					Function: openai.FunctionCall{
+					Function: core.FunctionCall{
 						Name:      "get_weather",
 						Arguments: `{"city":"NYC"}`,
 					},
@@ -53,9 +53,9 @@ func TestOpenAIToAnthropicTools(t *testing.T) {
 			},
 			{Role: "tool", ToolCallID: "call_1", Content: raw(`"sunny"`)},
 		},
-		Tools: []openai.Tool{{
+		Tools: []core.Tool{{
 			Type: "function",
-			Function: openai.ToolFunction{
+			Function: core.ToolFunction{
 				Name:        "get_weather",
 				Description: "weather",
 				Parameters:  raw(`{"type":"object"}`),
@@ -82,8 +82,8 @@ func TestOpenAIToAnthropicTools(t *testing.T) {
 }
 
 func TestOpenAIToAnthropicImageRejected(t *testing.T) {
-	req := &openai.ChatRequest{
-		Messages: []openai.ChatMessage{{
+	req := &core.ChatRequest{
+		Messages: []core.ChatMessage{{
 			Role:    "user",
 			Content: raw(`[{"type":"image_url","image_url":{"url":"http://x"}}]`),
 		}},
