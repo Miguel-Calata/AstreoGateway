@@ -40,7 +40,7 @@ func TestAnthropicNonStream(t *testing.T) {
 	defer upstream.Close()
 
 	e := setupProxy(t)
-	e.db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('anth', 'anthropic', 'anthropic', ?, 1)`, upstream.URL+"/v1")
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('anth', 'anthropic', 'anthropic', 'anthropic', ?, 1)`, upstream.URL+"/v1")
 	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('ka', 'anth', 'k', 'sk-ant-test', 0, 1)`)
 	e.pool.Load(e.db)
 
@@ -81,7 +81,7 @@ func TestAnthropicStream(t *testing.T) {
 	defer upstream.Close()
 
 	e := setupProxy(t)
-	e.db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('anth', 'anthropic', 'anthropic', ?, 1)`, upstream.URL+"/v1")
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('anth', 'anthropic', 'anthropic', 'anthropic', ?, 1)`, upstream.URL+"/v1")
 	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('ka', 'anth', 'k', 'sk-ant', 0, 1)`)
 	e.pool.Load(e.db)
 
@@ -102,7 +102,7 @@ func TestAnthropicStream(t *testing.T) {
 
 func TestAnthropicImageRejected(t *testing.T) {
 	e := setupProxy(t)
-	e.db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('anth', 'anthropic', 'anthropic', 'http://unused/v1', 1)`)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('anth', 'anthropic', 'anthropic', 'anthropic', 'http://unused/v1', 1)`)
 	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('ka', 'anth', 'k', 'sk', 0, 1)`)
 	e.pool.Load(e.db)
 	e.cache.InjectTestModels("anth", []discovery.Model{{ProviderID: "anth", ModelID: "claude"}})

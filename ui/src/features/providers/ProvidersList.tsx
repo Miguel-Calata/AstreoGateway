@@ -70,7 +70,7 @@ export function ProvidersList() {
                 <Tr key={p.id}>
                   <Td>
                     <Link to={`/providers/${p.id}`} className="font-medium hover:text-primary">{p.name}</Link>
-                    <div className="font-mono text-xs text-muted-foreground">{p.id}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{p.slug || p.id}</div>
                   </Td>
                   <Td><Badge variant={p.protocol === "anthropic" ? "warning" : "secondary"}>{p.protocol}</Badge></Td>
                   <Td><span className="font-mono text-xs text-muted-foreground">{p.base_url}</span></Td>

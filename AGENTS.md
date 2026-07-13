@@ -72,7 +72,8 @@ cd ui && npm install && npm run build
 
 1. **Modelos son texto**, siempre embebidos como `{provider_id, model_name}`.
    No son entidades en la base de datos.
-2. **Identificación**: `provider:model` (parsing `SplitN(s, ":", 2)`).
+2. **Identificación**: `slug:model` (parsing `SplitN(s, ":", 2)`).
+   Prefijo = `providers.slug` (estable); `name` es solo UI; `id` es UUID interno.
    Razón: ningún modelo real usa `:`; soporta nombres HF-style con slashes.
 3. **Sin prefijo → 404**: el gateway no adivina. El cliente (opencode, Cursor)
    hace discovery y siempre envía el prefijo.

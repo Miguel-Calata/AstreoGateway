@@ -13,25 +13,44 @@ import { type Provider } from "@/lib/api";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api";
 
-const EMPTY: Provider = { id: "", name: "", protocol: "openai", base_url: "", enabled: true, headers: {} };
+const EMPTY: Provider = { id: "", name: "", slug: "", protocol: "openai", base_url: "", enabled: true, headers: {} };
+
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+}
 
 export function ProviderEditor({
   open, onOpenChange, provider,
 }: { open: boolean; onOpenChange: (v: boolean) => void; provider?: Provider }) {
   const isEdit = !!provider;
   const [form, setForm] = useState<Provider>(EMPTY);
+  const [slugTouched, setSlugTouched] = useState(false);
   const [headerKey, setHeaderKey] = useState("");
   const [headerVal, setHeaderVal] = useState("");
   const create = useCreateProvider();
   const update = useUpdateProvider();
 
   useEffect(() => {
-    setForm(provider ? { ...provider, headers: { ...provider.headers } } : EMPTY);
+    setForm(provider ? { ...provider, slug: provider.slug ?? "", headers: { ...provider.headers } } : EMPTY);
+    setSlugTouched(!!provider?.slug);
     setHeaderKey("");
     setHeaderVal("");
   }, [provider, open]);
 
   const set = (patch: Partial<Provider>) => setForm((f) => ({ ...f, ...patch }));
+
+  const setName = (name: string) => {
+    if (!isEdit && !slugTouched) {
+      set({ name, slug: slugify(name) });
+    } else {
+      set({ name });
+    }
+  };
 
   const addHeader = () => {
     if (!headerKey.trim()) return;
@@ -69,9 +88,24 @@ export function ProviderEditor({
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">Name</Label>
-            <Input id="name" value={form.name} onChange={(e) => set({ name: e.target.value })} required placeholder="mistral" />
+            <Input id="name" value={form.name} onChange={(e) => setName(e.target.value)} required placeholder="Nvidia NIM" />
+            <p className="text-xs text-muted-foreground">Display name in the admin UI only.</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="slug">Slug</Label>
+            <Input
+              id="slug"
+              value={form.slug}
+              onChange={(e) => {
+                setSlugTouched(true);
+                set({ slug: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, "") });
+              }}
+              required
+              placeholder="nvidia-nim"
+              pattern="[a-z0-9][a-z0-9._-]{0,63}"
+            />
             <p className="text-xs text-muted-foreground">
-              Public model IDs use this as prefix: <code>{(form.name || "name").trim() || "name"}:model</code>. No colons.
+              Stable public prefix: <code>{(form.slug || "slug")}:model</code>. Changing it breaks clients.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3">

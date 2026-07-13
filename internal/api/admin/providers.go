@@ -19,7 +19,18 @@ func validateProviderName(name string) string {
 		return "name is required"
 	}
 	if strings.Contains(name, ":") {
-		return "name must not contain ':' (used as provider:model separator)"
+		return "name must not contain ':'"
+	}
+	return ""
+}
+
+func validateProviderSlug(slug string) string {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return ""
+	}
+	if !store.ValidSlug(store.Slugify(slug)) && !store.ValidSlug(slug) {
+		return "slug must be lowercase letters, digits, '-', '_' or '.' (no spaces or ':')"
 	}
 	return ""
 }
@@ -57,12 +68,18 @@ func createProvider(db *sql.DB) http.HandlerFunc {
 			return
 		}
 		p.Name = strings.TrimSpace(p.Name)
+		p.Slug = strings.TrimSpace(p.Slug)
 		if p.Name == "" || p.Protocol == "" || p.BaseURL == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			writeJSON(w, map[string]any{"error": "name, protocol, and base_url are required"})
 			return
 		}
 		if msg := validateProviderName(p.Name); msg != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]any{"error": msg})
+			return
+		}
+		if msg := validateProviderSlug(p.Slug); msg != "" {
 			w.WriteHeader(http.StatusBadRequest)
 			writeJSON(w, map[string]any{"error": msg})
 			return
@@ -114,7 +131,13 @@ func updateProvider(db *sql.DB) http.HandlerFunc {
 		}
 		p.ID = id
 		p.Name = strings.TrimSpace(p.Name)
+		p.Slug = strings.TrimSpace(p.Slug)
 		if msg := validateProviderName(p.Name); msg != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(w, map[string]any{"error": msg})
+			return
+		}
+		if msg := validateProviderSlug(p.Slug); msg != "" {
 			w.WriteHeader(http.StatusBadRequest)
 			writeJSON(w, map[string]any{"error": msg})
 			return

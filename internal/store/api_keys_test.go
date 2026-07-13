@@ -8,7 +8,7 @@ import (
 
 func TestAPIKeyCRUD(t *testing.T) {
 	db := testDB(t)
-	if _, err := db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('p1', 'p1', 'openai', 'https://api.example.com/v1', 1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', 'https://api.example.com/v1', 1)`); err != nil {
 		t.Fatalf("provider: %v", err)
 	}
 

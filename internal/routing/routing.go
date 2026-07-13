@@ -81,6 +81,13 @@ func (s *Selector) resolveDirect(providerRef, modelName string) (*Resolved, erro
 		return nil, fmt.Errorf("get provider: %w", err)
 	}
 	if prov == nil {
+		prov, err = store.GetProviderBySlug(s.db, providerRef)
+		if err != nil {
+			return nil, fmt.Errorf("get provider by slug: %w", err)
+		}
+	}
+	if prov == nil {
+		// Legacy: name was briefly used as public prefix before slug.
 		prov, err = store.GetProviderByName(s.db, providerRef)
 		if err != nil {
 			return nil, fmt.Errorf("get provider by name: %w", err)

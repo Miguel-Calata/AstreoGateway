@@ -150,7 +150,7 @@ func TestListModelsReturnsModelsAndAliases(t *testing.T) {
 	}
 }
 
-func TestListModelsUsesProviderNamePrefix(t *testing.T) {
+func TestListModelsUsesProviderSlugPrefix(t *testing.T) {
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "test.db"))
 	if err != nil {
@@ -168,7 +168,8 @@ func TestListModelsUsesProviderNamePrefix(t *testing.T) {
 
 	err = store.CreateProvider(db, &model.Provider{
 		ID:       "019f59f3-d4ec-7e54-bb4e-0bbee64fbced",
-		Name:     "mistral",
+		Name:     "Nvidia NIM",
+		Slug:     "nvidia-nim",
 		Protocol: "openai",
 		BaseURL:  "http://unused",
 		Enabled:  true,
@@ -181,7 +182,7 @@ func TestListModelsUsesProviderNamePrefix(t *testing.T) {
 	pool := keypool.New()
 	cache := discovery.New(db, pool, 5*time.Minute, 5*time.Second, nopLogger)
 	cache.InjectTestModels("019f59f3-d4ec-7e54-bb4e-0bbee64fbced", []discovery.Model{
-		{ProviderID: "019f59f3-d4ec-7e54-bb4e-0bbee64fbced", ModelID: "mistral-medium-2505"},
+		{ProviderID: "019f59f3-d4ec-7e54-bb4e-0bbee64fbced", ModelID: "meta/llama-3.1-70b-instruct"},
 	})
 	sel := routing.NewSelector(db, cache, pool)
 	prox := proxy.New(pool, 5*time.Second, 30*time.Second, nopLogger)
@@ -208,15 +209,15 @@ func TestListModelsUsesProviderNamePrefix(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&body)
 	found := false
 	for _, m := range body.Data {
-		if m.ID == "mistral:mistral-medium-2505" {
+		if m.ID == "nvidia-nim:meta/llama-3.1-70b-instruct" {
 			found = true
 		}
-		if strings.Contains(m.ID, "019f59f3") {
-			t.Fatalf("expected name prefix, got UUID id %q", m.ID)
+		if strings.Contains(m.ID, "019f59f3") || strings.Contains(m.ID, " ") {
+			t.Fatalf("expected slug prefix without spaces/uuid, got %q", m.ID)
 		}
 	}
 	if !found {
-		t.Fatalf("expected mistral:mistral-medium-2505, got %v", body.Data)
+		t.Fatalf("expected nvidia-nim:meta/llama-3.1-70b-instruct, got %v", body.Data)
 	}
 }
 

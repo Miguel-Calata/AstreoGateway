@@ -41,7 +41,7 @@ func setup(t *testing.T) *testEnv {
 }
 
 func (e *testEnv) seedProvider(id, name, protocol, baseURL string) {
-	e.db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES (?, ?, ?, ?, 1)`, id, name, protocol, baseURL)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES (?, ?, ?, ?, ?, 1)`, id, name, store.Slugify(name), protocol, baseURL)
 }
 
 func (e *testEnv) seedKey(providerID, key string) {
@@ -79,15 +79,15 @@ func TestResolveDirectProvider(t *testing.T) {
 	}
 }
 
-func TestResolveDirectByProviderName(t *testing.T) {
+func TestResolveDirectByProviderSlug(t *testing.T) {
 	e := setup(t)
-	e.seedProvider("uuid-1", "mistral", "openai", "http://localhost:9999")
+	e.seedProvider("uuid-1", "Mistral AI", "openai", "http://localhost:9999")
 	e.seedKey("uuid-1", "sk-mistral")
 	e.pool.Load(e.db)
 
-	res, err := e.sel.Resolve("mistral:mistral-large-latest")
+	res, err := e.sel.Resolve("mistral-ai:mistral-large-latest")
 	if err != nil {
-		t.Fatalf("resolve by name: %v", err)
+		t.Fatalf("resolve by slug: %v", err)
 	}
 	if res.Provider.ID != "uuid-1" {
 		t.Fatalf("expected uuid-1, got %s", res.Provider.ID)

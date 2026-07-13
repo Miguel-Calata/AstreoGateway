@@ -26,7 +26,7 @@ func testPoolDB(t *testing.T) (*Pool, *sql.DB) {
 
 func TestLoadGetEnabled(t *testing.T) {
 	pool, db := testPoolDB(t)
-	if _, err := db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('p1', 'p1', 'openai', 'https://api.example.com/v1', 1)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', 'https://api.example.com/v1', 1)`); err != nil {
 		t.Fatalf("insert provider: %v", err)
 	}
 	k := &model.APIKey{ProviderID: "p1", Label: "main", Value: "sk-test", Priority: 0, Enabled: true}
@@ -47,7 +47,7 @@ func TestLoadGetEnabled(t *testing.T) {
 
 func TestGetSkipsDisabled(t *testing.T) {
 	pool, db := testPoolDB(t)
-	db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('p1', 'p1', 'openai', 'https://x', 1)`)
+	db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', 'https://x', 1)`)
 	k := &model.APIKey{ProviderID: "p1", Label: "off", Value: "sk-off", Enabled: false}
 	store.CreateAPIKey(db, k)
 	pool.Load(db)
@@ -58,7 +58,7 @@ func TestGetSkipsDisabled(t *testing.T) {
 
 func TestMarkCooldown(t *testing.T) {
 	pool, db := testPoolDB(t)
-	db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('p1', 'p1', 'openai', 'https://x', 1)`)
+	db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', 'https://x', 1)`)
 	k := &model.APIKey{ProviderID: "p1", Label: "main", Value: "sk-test", Enabled: true}
 	store.CreateAPIKey(db, k)
 	pool.Load(db)
@@ -71,7 +71,7 @@ func TestMarkCooldown(t *testing.T) {
 
 func TestLoadReloadPicksNewKey(t *testing.T) {
 	pool, db := testPoolDB(t)
-	db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('p1', 'p1', 'openai', 'https://x', 1)`)
+	db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', 'https://x', 1)`)
 	pool.Load(db)
 	if _, ok := pool.Get("p1"); ok {
 		t.Fatal("expected no keys")

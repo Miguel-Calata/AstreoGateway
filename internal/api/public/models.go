@@ -28,9 +28,13 @@ func listModels(db *sql.DB, cache *discovery.Cache) http.HandlerFunc {
 			http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 			return
 		}
-		idToName := make(map[string]string, len(providers))
+		idToSlug := make(map[string]string, len(providers))
 		for _, p := range providers {
-			idToName[p.ID] = p.Name
+			prefix := p.Slug
+			if prefix == "" {
+				prefix = p.ID
+			}
+			idToSlug[p.ID] = prefix
 		}
 
 		aliases, err := store.ListAliases(db)
@@ -41,7 +45,7 @@ func listModels(db *sql.DB, cache *discovery.Cache) http.HandlerFunc {
 
 		data := make([]modelEntry, 0, len(cacheModels)+len(aliases))
 		for _, m := range cacheModels {
-			prefix := idToName[m.ProviderID]
+			prefix := idToSlug[m.ProviderID]
 			if prefix == "" {
 				prefix = m.ProviderID
 			}

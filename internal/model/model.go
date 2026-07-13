@@ -3,6 +3,7 @@ package model
 type Provider struct {
 	ID       string            `json:"id"`
 	Name     string            `json:"name"`
+	Slug     string            `json:"slug"`
 	Protocol string            `json:"protocol"`
 	BaseURL  string            `json:"base_url"`
 	Enabled  bool              `json:"enabled"`

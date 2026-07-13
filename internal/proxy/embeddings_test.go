@@ -55,7 +55,7 @@ func TestEmbeddingsPassthrough(t *testing.T) {
 
 func TestEmbeddingsAnthropicRejected(t *testing.T) {
 	e := setupProxy(t)
-	e.db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('anth', 'anthropic', 'anthropic', 'https://api.anthropic.com', 1)`)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('anth', 'anthropic', 'anthropic', 'anthropic', 'https://api.anthropic.com', 1)`)
 	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k-anth', 'anth', 'k', 'sk-ant', 0, 1)`)
 	e.pool.Load(e.db)
 	e.cache.InjectTestModels("anth", []discovery.Model{{ProviderID: "anth", ModelID: "claude-sonnet-4"}})
@@ -87,8 +87,8 @@ func TestEmbeddingsFailover(t *testing.T) {
 	defer upstream2.Close()
 
 	e := setupProxy(t)
-	e.db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('p1', 'p1', 'openai', ?, 1)`, upstream1.URL+"/v1")
-	e.db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('p2', 'p2', 'openai', ?, 1)`, upstream2.URL+"/v1")
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', ?, 1)`, upstream1.URL+"/v1")
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p2', 'p2', 'p2', 'openai', ?, 1)`, upstream2.URL+"/v1")
 	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k1', 'p1', 'k', 'sk1', 0, 1)`)
 	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k2', 'p2', 'k', 'sk2', 0, 1)`)
 	e.db.Exec(`INSERT INTO aliases (id, name, routing, enabled) VALUES ('a1', 'embed', 'failover', 1)`)

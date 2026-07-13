@@ -35,7 +35,7 @@ func testCache(t *testing.T) (*Cache, *keypool.Pool, func()) {
 
 func seedProvider(t *testing.T, db *sql.DB, id, name, protocol, baseURL string) {
 	t.Helper()
-	_, err := db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES (?, ?, ?, ?, 1)`, id, name, protocol, baseURL)
+	_, err := db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES (?, ?, ?, ?, ?, 1)`, id, name, store.Slugify(name), protocol, baseURL)
 	if err != nil {
 		t.Fatalf("seed provider: %v", err)
 	}

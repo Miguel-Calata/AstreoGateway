@@ -49,7 +49,7 @@ func setupProxy(t *testing.T) *proxyEnv {
 
 func seedProvAndKey(t *testing.T, db *sql.DB, id, baseURL, key string) {
 	t.Helper()
-	db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES (?, ?, 'openai', ?, 1)`, id, id, baseURL)
+	db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES (?, ?, ?, 'openai', ?, 1)`, id, id, id, baseURL)
 	db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES (?, ?, 'k', ?, 0, 1)`, "key-"+id, id, key)
 }
 
@@ -183,8 +183,8 @@ func TestFailoverRetryOn5xx(t *testing.T) {
 	defer upstream2.Close()
 
 	e := setupProxy(t)
-	e.db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('p1', 'p1', 'openai', ?, 1)`, upstream1.URL)
-	e.db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('p2', 'p2', 'openai', ?, 1)`, upstream2.URL)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', ?, 1)`, upstream1.URL)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p2', 'p2', 'p2', 'openai', ?, 1)`, upstream2.URL)
 	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k1', 'p1', 'k', 'sk1', 0, 1)`)
 	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k2', 'p2', 'k', 'sk2', 0, 1)`)
 	e.db.Exec(`INSERT INTO aliases (id, name, routing, enabled) VALUES ('a1', 'coding', 'failover', 1)`)
@@ -213,7 +213,7 @@ func TestNoFailoverFor400(t *testing.T) {
 	defer upstream.Close()
 
 	e := setupProxy(t)
-	e.db.Exec(`INSERT INTO providers (id, name, protocol, base_url, enabled) VALUES ('p1', 'p1', 'openai', ?, 1)`, upstream.URL)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', ?, 1)`, upstream.URL)
 	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k1', 'p1', 'k', 'sk1', 0, 1)`)
 	e.db.Exec(`INSERT INTO aliases (id, name, routing, enabled) VALUES ('a1', 'coding', 'failover', 1)`)
 	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p1', 'gpt-5', 0)`)

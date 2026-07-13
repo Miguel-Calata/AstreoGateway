@@ -3,6 +3,7 @@
 export interface Provider {
   id: string;
   name: string;
+  slug: string;
   protocol: "openai" | "anthropic";
   base_url: string;
   enabled: boolean;

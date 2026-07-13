@@ -75,6 +75,9 @@ func Migrate(db *sql.DB) error {
 			return fmt.Errorf("apply %s: %w", name, err)
 		}
 	}
+	if err := ensureProviderSlugs(db); err != nil {
+		return fmt.Errorf("ensure provider slugs: %w", err)
+	}
 	return nil
 }
 

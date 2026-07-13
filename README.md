@@ -96,11 +96,14 @@ tras bootstrap.
 
 ## Identificación de modelos
 
-`provider:model`. Ejemplos:
+`slug:model`. El prefijo es el **slug** del provider (estable, URL-safe), no el nombre de display ni el UUID.
+
+Ejemplos:
 
 - `openai:gpt-5`
 - `anthropic:claude-sonnet-4`
 - `openrouter:meta-llama/Llama-3.3-70B` (modelo HF-style, slashes intactos)
+- `nvidia-nim:meta/llama-3.1-70b-instruct`
 
 Sin prefijo: se busca como alias. Si no existe → 404.
 
