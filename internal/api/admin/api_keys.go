@@ -39,6 +39,19 @@ func reloadPool(pool *keypool.Pool, db *sql.DB) {
 	}
 }
 
+func redactAPIKey(k model.APIKey) model.APIKey {
+	k.Value = ""
+	return k
+}
+
+func redactAPIKeys(keys []model.APIKey) []model.APIKey {
+	out := make([]model.APIKey, len(keys))
+	for i, k := range keys {
+		out[i] = redactAPIKey(k)
+	}
+	return out
+}
+
 func listAPIKeys(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		providerID := chi.URLParam(r, "providerID")
@@ -48,7 +61,7 @@ func listAPIKeys(db *sql.DB) http.HandlerFunc {
 			writeJSON(w, map[string]any{"error": err.Error()})
 			return
 		}
-		writeJSON(w, keys)
+		writeJSON(w, redactAPIKeys(keys))
 	}
 }
 
@@ -92,7 +105,7 @@ func getAPIKey(db *sql.DB) http.HandlerFunc {
 			writeJSON(w, map[string]any{"error": "api_key not found"})
 			return
 		}
-		writeJSON(w, k)
+		writeJSON(w, redactAPIKey(*k))
 	}
 }
 
@@ -113,13 +126,16 @@ func updateAPIKey(db *sql.DB, pool *keypool.Pool) http.HandlerFunc {
 		}
 		k.ID = id
 		k.ProviderID = existing.ProviderID
+		if k.Value == "" {
+			k.Value = existing.Value
+		}
 		if err := store.UpdateAPIKey(db, &k); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			writeJSON(w, map[string]any{"error": err.Error()})
 			return
 		}
 		reloadPool(pool, db)
-		writeJSON(w, k)
+		writeJSON(w, redactAPIKey(k))
 	}
 }
 

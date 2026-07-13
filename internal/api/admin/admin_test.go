@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,11 @@ import (
 var nopLogger = slog.New(slog.NewTextHandler(nil, &slog.HandlerOptions{Level: slog.LevelError + 1}))
 
 func testSetup(t *testing.T) (*chi.Mux, string, *keypool.Pool) {
+	t.Helper()
+	return testSetupSecure(t, false)
+}
+
+func testSetupSecure(t *testing.T, cookieSecure bool) (*chi.Mux, string, *keypool.Pool) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "test.db"))
@@ -36,7 +42,7 @@ func testSetup(t *testing.T) (*chi.Mux, string, *keypool.Pool) {
 	}
 	pool := keypool.New()
 	cache := discovery.New(db, pool, 5*time.Minute, 5*time.Second, nopLogger)
-	adminHandler, err := NewRouter(db, secret, cache, pool)
+	adminHandler, err := NewRouter(db, secret, cache, pool, cookieSecure)
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}
@@ -94,6 +100,29 @@ func TestBootstrapCreate(t *testing.T) {
 	cookie := resp.Header.Get("Set-Cookie")
 	if cookie == "" {
 		t.Fatal("expected session cookie")
+	}
+	if strings.Contains(strings.ToLower(cookie), "secure") {
+		t.Fatalf("Secure should be off by default, got %s", cookie)
+	}
+}
+
+func TestBootstrapCookieSecure(t *testing.T) {
+	r, _, _ := testSetupSecure(t, true)
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/admin/api/bootstrap", "application/json",
+		jsonBody(map[string]string{"username": "admin", "password": "password123"}))
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	cookie := resp.Header.Get("Set-Cookie")
+	if !strings.Contains(strings.ToLower(cookie), "secure") {
+		t.Fatalf("expected Secure cookie, got %s", cookie)
 	}
 }
 
@@ -389,6 +418,9 @@ func TestAPIKeysCRUDAndKeypoolReload(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&created)
 	_ = resp.Body.Close()
 	keyID := created["id"].(string)
+	if created["key_value"] != "sk-live-test" {
+		t.Fatalf("create should return key_value once, got %v", created["key_value"])
+	}
 
 	got, ok := pool.Get(providerID)
 	if !ok || got.Value != "sk-live-test" {
@@ -399,7 +431,26 @@ func TestAPIKeysCRUDAndKeypoolReload(t *testing.T) {
 	if resp2.StatusCode != 200 {
 		t.Fatalf("list: expected 200, got %d", resp2.StatusCode)
 	}
+	var listed []map[string]any
+	json.NewDecoder(resp2.Body).Decode(&listed)
 	_ = resp2.Body.Close()
+	if len(listed) != 1 {
+		t.Fatalf("list: expected 1 key, got %d", len(listed))
+	}
+	if _, has := listed[0]["key_value"]; has {
+		t.Fatalf("list must not include key_value, got %v", listed[0])
+	}
+
+	respGet := doReq("GET", "/admin/api/api-keys/"+keyID, nil)
+	if respGet.StatusCode != 200 {
+		t.Fatalf("get: expected 200, got %d", respGet.StatusCode)
+	}
+	var one map[string]any
+	json.NewDecoder(respGet.Body).Decode(&one)
+	_ = respGet.Body.Close()
+	if _, has := one["key_value"]; has {
+		t.Fatalf("get must not include key_value, got %v", one)
+	}
 
 	resp3 := doReq("PUT", "/admin/api/api-keys/"+keyID, map[string]any{
 		"label": "main", "key_value": "sk-rotated", "priority": 0, "enabled": true,
@@ -407,10 +458,27 @@ func TestAPIKeysCRUDAndKeypoolReload(t *testing.T) {
 	if resp3.StatusCode != 200 {
 		t.Fatalf("update: expected 200, got %d", resp3.StatusCode)
 	}
+	var updated map[string]any
+	json.NewDecoder(resp3.Body).Decode(&updated)
 	_ = resp3.Body.Close()
+	if _, has := updated["key_value"]; has {
+		t.Fatalf("update must not include key_value, got %v", updated)
+	}
 	got, ok = pool.Get(providerID)
 	if !ok || got.Value != "sk-rotated" {
 		t.Fatalf("pool should have rotated key, got %+v ok=%v", got, ok)
+	}
+
+	respKeep := doReq("PUT", "/admin/api/api-keys/"+keyID, map[string]any{
+		"label": "main-renamed", "priority": 1, "enabled": true,
+	})
+	if respKeep.StatusCode != 200 {
+		t.Fatalf("update without key_value: expected 200, got %d", respKeep.StatusCode)
+	}
+	_ = respKeep.Body.Close()
+	got, ok = pool.Get(providerID)
+	if !ok || got.Value != "sk-rotated" {
+		t.Fatalf("pool should keep secret when key_value omitted, got %+v ok=%v", got, ok)
 	}
 
 	resp4 := doReq("DELETE", "/admin/api/api-keys/"+keyID, nil)

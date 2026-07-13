@@ -19,6 +19,7 @@ type Config struct {
 	DiscoveryTimeout time.Duration
 	ProxyTimeout     time.Duration
 	KeyCooldown      time.Duration
+	CookieSecure     bool
 }
 
 // Load parses env vars and flags into a Config.
@@ -31,6 +32,7 @@ func Load() (*Config, error) {
 	discoveryTimeout := fs.String("discovery-timeout", envOr("AIGW_DISCOVERY_TIMEOUT", "10s"), "HTTP timeout for upstream model fetches")
 	proxyTimeout := fs.String("proxy-timeout", envOr("AIGW_PROXY_TIMEOUT", "120s"), "HTTP timeout for proxied requests")
 	keyCooldown := fs.String("key-cooldown", envOr("AIGW_KEY_COOLDOWN", "30s"), "cooldown duration after 429/5xx errors")
+	cookieSecure := fs.Bool("cookie-secure", envOrBool("AIGW_COOKIE_SECURE", false), "set Secure flag on admin session cookie (use behind HTTPS)")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return nil, err
 	}
@@ -59,6 +61,7 @@ func Load() (*Config, error) {
 		DiscoveryTimeout: timeout,
 		ProxyTimeout:     proxy,
 		KeyCooldown:      cooldown,
+		CookieSecure:     *cookieSecure,
 	}
 	switch strings.ToLower(*logLevel) {
 	case "debug":
@@ -78,4 +81,19 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func envOrBool(key string, def bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	switch strings.ToLower(v) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return def
+	}
 }

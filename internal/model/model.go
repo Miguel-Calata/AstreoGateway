@@ -13,7 +13,7 @@ type APIKey struct {
 	ID         string `json:"id"`
 	ProviderID string `json:"provider_id"`
 	Label      string `json:"label"`
-	Value      string `json:"key_value"`
+	Value      string `json:"key_value,omitempty"`
 	Priority   int    `json:"priority"`
 	Enabled    bool   `json:"enabled"`
 }

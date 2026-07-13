@@ -10,13 +10,13 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func NewRouter(db *sql.DB, secret string, cache *discovery.Cache, pool *keypool.Pool) (http.Handler, error) {
+func NewRouter(db *sql.DB, secret string, cache *discovery.Cache, pool *keypool.Pool, cookieSecure bool) (http.Handler, error) {
 	r := chi.NewRouter()
 
-	r.Get("/bootstrap", bootstrapHandler(db))
-	r.Post("/bootstrap", bootstrapHandler(db))
-	r.Post("/login", loginHandler(db, secret))
-	r.Post("/logout", logoutHandler)
+	r.Get("/bootstrap", bootstrapHandler(db, secret, cookieSecure))
+	r.Post("/bootstrap", bootstrapHandler(db, secret, cookieSecure))
+	r.Post("/login", loginHandler(db, secret, cookieSecure))
+	r.Post("/logout", logoutHandler(cookieSecure))
 	r.Group(func(r chi.Router) {
 		r.Use(func(next http.Handler) http.Handler {
 			return RequireAdmin(secret, next)

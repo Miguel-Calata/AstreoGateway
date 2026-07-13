@@ -97,7 +97,7 @@ func parseCookieValue(secret, cookieVal string) (string, error) {
 	return parts[0], nil
 }
 
-func bootstrapHandler(db *sql.DB) http.HandlerFunc {
+func bootstrapHandler(db *sql.DB, secret string, cookieSecure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -135,8 +135,7 @@ func bootstrapHandler(db *sql.DB) http.HandlerFunc {
 				http.Error(w, `{"error":"failed to create admin"}`, http.StatusInternalServerError)
 				return
 			}
-			secret, _ := store.GetSetting(db, "cookie_hmac_secret")
-			setSessionCookie(w, secret, u.ID)
+			setSessionCookie(w, secret, u.ID, cookieSecure)
 			writeJSON(w, map[string]any{"id": u.ID, "username": u.Username})
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -144,7 +143,7 @@ func bootstrapHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func loginHandler(db *sql.DB, secret string) http.HandlerFunc {
+func loginHandler(db *sql.DB, secret string, cookieSecure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -167,25 +166,28 @@ func loginHandler(db *sql.DB, secret string) http.HandlerFunc {
 			http.Error(w, `{"error":"invalid credentials"}`, http.StatusUnauthorized)
 			return
 		}
-		setSessionCookie(w, secret, u.ID)
+		setSessionCookie(w, secret, u.ID, cookieSecure)
 		writeJSON(w, map[string]any{"id": u.ID, "username": u.Username})
 	}
 }
 
-func logoutHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
+func logoutHandler(cookieSecure bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     cookieName,
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   cookieSecure,
+			MaxAge:   -1,
+			SameSite: http.SameSiteLaxMode,
+		})
+		writeJSON(w, map[string]string{"status": "ok"})
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     cookieName,
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		MaxAge:   -1,
-		SameSite: http.SameSiteLaxMode,
-	})
-	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 func sessionHandler(db *sql.DB) http.HandlerFunc {
@@ -200,13 +202,14 @@ func sessionHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func setSessionCookie(w http.ResponseWriter, secret, adminID string) {
+func setSessionCookie(w http.ResponseWriter, secret, adminID string, cookieSecure bool) {
 	val := makeCookieValue(secret, adminID)
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieName,
 		Value:    val,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   cookieSecure,
 		MaxAge:   int(cookieTTL.Seconds()),
 		SameSite: http.SameSiteLaxMode,
 	})

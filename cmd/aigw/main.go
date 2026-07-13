@@ -65,7 +65,7 @@ func main() {
 	cache.Start(discCtx)
 	defer cache.Stop()
 
-	adminHandler, err := admin.NewRouter(db, secret, cache, pool)
+	adminHandler, err := admin.NewRouter(db, secret, cache, pool, cfg.CookieSecure)
 	if err != nil {
 		logger.Error("failed to create admin router", "err", err)
 		os.Exit(1)
