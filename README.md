@@ -38,7 +38,8 @@ go run ./cmd/aigw -addr :8080 -db data/aigw.db -log-level debug
 ```
 
 Flags / env: `-addr` (`AIGW_ADDR`), `-db` (`AIGW_DB`), `-log-level`,
-`-discovery-ttl`, `-discovery-timeout`, `-proxy-timeout`, `-key-cooldown`.
+`-discovery-ttl`, `-discovery-timeout`, `-proxy-timeout`, `-key-cooldown`,
+`-cookie-secure` (`AIGW_COOKIE_SECURE`, default false; usar `true` detrás de HTTPS).
 
 ### Bootstrap mínimo (sin UI)
 
@@ -101,9 +102,9 @@ La imagen runtime es distroless (sin shell); el probe de salud es HTTP a
 
 ## Known issues
 
-- List/get de API keys de proveedor en admin devuelve el secret en JSON.
-- Cookie de sesión admin sin flag `Secure`.
 - UI no embebida (`/admin/*` → 501).
+- Secrets de proveedor se guardan en claro en SQLite (no se devuelven en list/get).
+- `WriteTimeout` del server (60s) puede cortar streams más largos que el proxy timeout.
 
 ## Documentación
 

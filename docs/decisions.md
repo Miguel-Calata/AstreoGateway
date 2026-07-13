@@ -132,8 +132,9 @@ post-v1.
   el del cliente (OpenAI→OpenAI). Cero parsing, mínima latencia, binario
   ligero.
 - **Traducción evento a evento** cuando los protocolos difieren
-  (Anthropic→OpenAI client). `proxy/translate.go` parsea cada SSE upstream y
-  re-serializa al formato del cliente.
+  (Anthropic→OpenAI client). `protocol/anthropic/stream.go` +
+  `proxy/anthropic.go` parsean cada SSE upstream y re-serializan al formato
+  del cliente.
 
 Dos code paths, justificados por el peso del parsing de traducción.
 

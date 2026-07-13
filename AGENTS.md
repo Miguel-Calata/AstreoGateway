@@ -112,11 +112,11 @@ go vet ./...
 
 ## Known issues
 
-- **Secrets en admin API**: list/get de API keys de proveedor incluyen
-  `key_value` en claro en el JSON.
-- **Cookie admin**: HttpOnly + SameSite=Lax, sin `Secure`.
 - **UI / embed**: `/admin/*` responde 501; `internal/web/dist` y `ui/` vacíos.
-- **Cobertura**: falta chat e2e público vía router.
+- **Provider secrets en SQLite**: `api_keys.key_value` se guarda en claro en DB
+  (list/get admin ya no lo devuelven; create sí, una vez).
+- **WriteTimeout 60s** del HTTP server vs proxy timeout default 120s: streams
+  largos pueden cortarse a nivel server antes que el client upstream.
 
 ## Convenciones
 
