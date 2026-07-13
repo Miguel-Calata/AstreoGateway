@@ -23,9 +23,25 @@ export const useLogout = () => {
   const qc = useQueryClient();
   return useMutation({ mutationFn: api.logout, onSuccess: () => qc.clear() });
 };
-export const useLogin = () =>
-  useMutation({ mutationFn: api.login });
-export const useBootstrapMutation = () => useMutation({ mutationFn: api.bootstrap });
+export const useLogin = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.login,
+    onSuccess: (user) => {
+      qc.setQueryData(q.session, user);
+    },
+  });
+};
+export const useBootstrapMutation = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.bootstrap,
+    onSuccess: (user) => {
+      qc.setQueryData(q.bootstrap, { needed: false });
+      qc.setQueryData(q.session, user);
+    },
+  });
+};
 
 // --- Providers ---
 export const useProviders = () =>

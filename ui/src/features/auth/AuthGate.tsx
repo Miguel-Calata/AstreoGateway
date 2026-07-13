@@ -16,7 +16,7 @@ export function AuthGate() {
     }
   }, [sessionQ.isError, bootstrapQ.data, navigate]);
 
-  if (bootstrapQ.isLoading || (sessionQ.isLoading && !bootstrapQ.data?.needed === undefined)) {
+  if (bootstrapQ.isLoading || (sessionQ.isLoading && bootstrapQ.data?.needed === undefined)) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Spinner className="size-6" />
