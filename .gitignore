@@ -11,8 +11,9 @@ data/
 # Go workspace
 vendor/
 
-# UI build output (regenerated)
-internal/web/dist/
+# UI build output (regenerated); keep .gitkeep so go:embed compiles on fresh clone
+internal/web/dist/*
+!internal/web/dist/.gitkeep
 
 # Node / Vite
 ui/node_modules/

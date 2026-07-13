@@ -11,7 +11,7 @@ de desplegar.
 - **SQLite**: `modernc.org/sqlite` (puro Go, sin CGO, Docker multi-arch trivial)
 - **Sin ORM**: `database/sql` + scans explícitos
 - **Migraciones**: hand-rolled con `embed.FS` + tabla `schema_version`
-- **UI**: SPA React/Vite, assets embebidos en el binario (`internal/web/dist`) — pendiente
+- **UI**: SPA React/Vite + Tailwind + shadcn/ui, assets embebidos en el binario (`internal/web/dist`)
 - **Sin frameworks pesados, sin CGO, sin YAML**
 
 ## Estructura
@@ -31,9 +31,12 @@ internal/
   proxy/           passthrough o traducción según protocolo
   api/public/      /v1/* (OpenAI-compatible), auth gateway-keys
   api/admin/       /admin/api/* (CRUD), auth admin
-  web/             assets SPA embebidos (embed.FS) — placeholder
+  web/             assets SPA embebidos (embed.FS) con fallback a index.html
   metrics/         counters en memoria, dashboard — placeholder
-ui/                fuente del proyecto Vite — pendiente
+ui/                fuente del proyecto Vite (React + shadcn/ui + Tailwind)
+  src/features/    cada feature Providers, Aliases, GatewayKeys, Discovery, Overview
+src/lib/         api.ts (fetch wrapper + tipos), queries.ts (TanStack hooks), format.ts
+  src/components/  primitivos shadcn (button, dialog, select, table, switch, ...) + layout
 docs/              decisiones y gaps de traducción
 ```
 
@@ -59,7 +62,10 @@ go test ./...
 go vet ./...
 
 # UI (desde ui/): build de Vite → internal/web/dist
-# (requiere Node.js; ver ui/README.md cuando exista)
+cd ui && npm install && npm run build
+
+# El binario embebe los assets; para recargarlos tras cambios en ui/
+# simplemente repite npm run build && go build -o bin/aigw ./cmd/aigw
 ```
 
 ## Decisiones de diseño (resumen — completas en docs/decisions.md)
@@ -102,7 +108,7 @@ go vet ./...
 
 1. Esqueleto + store + migraciones     ✓
 2. Admin API + bootstrap               ✓ (backend)
-3. UI mínima embebida                  pendiente
+3. UI mínima embebida                  ✓ (Vite React SPA + login + CRUD + drag aliases)
 4. Discovery + `/v1/models`            ✓
 5. Proxy passthrough OpenAI→OpenAI     ✓
 6. Traducción Anthropic               ✓ (v1)
@@ -112,7 +118,6 @@ go vet ./...
 
 ## Known issues
 
-- **UI / embed**: `/admin/*` responde 501; `internal/web/dist` y `ui/` vacíos.
 - **Provider secrets en SQLite**: `api_keys.key_value` se guarda en claro en DB
   (list/get admin ya no lo devuelven; create sí, una vez).
 - **WriteTimeout 60s** del HTTP server vs proxy timeout default 120s: streams

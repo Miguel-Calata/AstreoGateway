@@ -19,6 +19,7 @@ import (
 	"astreoGateway/internal/proxy"
 	"astreoGateway/internal/routing"
 	"astreoGateway/internal/store"
+	"astreoGateway/internal/web"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -81,9 +82,10 @@ func main() {
 	r.Route("/admin/api", func(r chi.Router) {
 		r.Mount("/", adminHandler)
 	})
-	r.Get("/admin/*", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, `{"error":"UI not yet available (milestone 3)"}`, http.StatusNotImplemented)
+	r.Get("/admin", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/admin/", http.StatusFound)
 	})
+	r.Handle("/admin/*", http.StripPrefix("/admin", web.Handler()))
 	r.Route("/v1", func(r chi.Router) {
 		r.Mount("/", publicHandler)
 	})

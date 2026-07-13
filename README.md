@@ -11,8 +11,8 @@ hable OpenAI (Cursor, Continue, Open WebUI, LibreChat, Cline, opencode, ...).
 
 ## Estado
 
-**Backend core usable** (admin API, discovery, chat OpenAI/Anthropic,
-embeddings OpenAI, healthz). UI embebida y métricas ricas pendientes.
+**Fullstack usable** (admin SPA embebida, admin API, discovery, chat
+OpenAI/Anthropic, embeddings OpenAI, healthz). Métricas ricas pendientes.
 Ver milestones en `AGENTS.md`.
 
 | Área | Estado |
@@ -22,26 +22,41 @@ Ver milestones en `AGENTS.md`.
 | Discovery + `GET /v1/models` | Hecho |
 | Proxy OpenAI → OpenAI | Hecho |
 | Traducción Anthropic (texto + tools v1) | Hecho |
-| UI admin embebida | Pendiente (501) |
+| UI admin embebida | Hecho (Vite React SPA en `/admin/*`) |
 | `/v1/embeddings` | Hecho (OpenAI-only; Anthropic → 400) |
 | Health (`/healthz`) | Hecho |
 | Métricas / dashboard | Pendiente |
-| Docker + docs de deploy | Hecho (buildable) |
+| Docker + docs de deploy | Hecho (multi-stage Node→Go) |
 
 ## Quick start
 
-> Requiere Go según `go.mod` (hoy 1.25). Node.js solo cuando exista la UI (M3).
+> Requiere Go según `go.mod` (hoy 1.25). Node.js 20+ para builds de la UI.
 
 ```bash
-go mod tidy
-go run ./cmd/aigw -addr :8080 -db data/aigw.db -log-level debug
+# 1. Build de la UI embebida (primera vez / tras cambios en ui/)
+cd ui && npm install && npm run build && cd ..
+
+# 2. Build del binario (incluye la SPA embebida)
+go build -o bin/aigw ./cmd/aigw
+
+# 3. Ejecutar
+./bin/aigw -addr :8080 -db data/aigw.db -log-level debug
+
+# Alternativa rápida (sin build de UI): abre /admin y verás bootstrap/login.
+# La SPA se construye antes del go build.
 ```
 
 Flags / env: `-addr` (`AIGW_ADDR`), `-db` (`AIGW_DB`), `-log-level`,
 `-discovery-ttl`, `-discovery-timeout`, `-proxy-timeout`, `-key-cooldown`,
 `-cookie-secure` (`AIGW_COOKIE_SECURE`, default false; usar `true` detrás de HTTPS).
 
-### Bootstrap mínimo (sin UI)
+### Bootstrap (UI web abierta en `/admin`)
+
+Abre `http://localhost:8080/admin/` en el navegador. La primera vez pide crear
+un admin. Tras login tienes el panel: Providers, API Keys, Aliases, Gateway Keys,
+Discovery.
+
+### Bootstrap por API (headless)
 
 ```bash
 # 1. Crear primer admin (solo si no hay usuarios)
@@ -71,7 +86,7 @@ curl -s http://localhost:8080/v1/chat/completions \
 | `POST /v1/chat/completions` | Implementado — passthrough OpenAI o traducción Anthropic |
 | `POST /v1/embeddings` | Implementado — passthrough OpenAI; Anthropic → 400 |
 | `/admin/api/*` | Implementado — bootstrap, auth, CRUD, discovery |
-| `/admin/*` (UI) | Stub 501 (milestone 3) |
+| `/admin/*` (UI) | Implementado — SPA React/Vite con login, CRUD, discovery |
 | `GET /healthz` | Implementado — ping DB + uptime |
 | Métricas / dashboard | Pendiente (milestone 8) |
 
@@ -102,9 +117,9 @@ La imagen runtime es distroless (sin shell); el probe de salud es HTTP a
 
 ## Known issues
 
-- UI no embebida (`/admin/*` → 501).
 - Secrets de proveedor se guardan en claro en SQLite (no se devuelven en list/get).
 - `WriteTimeout` del server (60s) puede cortar streams más largos que el proxy timeout.
+  Para streams largos (chat, embeddings), considerar `WriteTimeout: 0` o listener separado.
 
 ## Documentación
 
