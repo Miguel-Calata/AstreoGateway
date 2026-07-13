@@ -1,0 +1,30 @@
+# Binaries
+bin/
+/aigw
+
+# SQLite + WAL/SHM
+*.db
+*.db-wal
+*.db-shm
+data/
+
+# Go workspace
+vendor/
+
+# UI build output (regenerated)
+internal/web/dist/
+
+# Node / Vite
+ui/node_modules/
+ui/dist/
+node_modules/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Env
+.env
+.env.local
