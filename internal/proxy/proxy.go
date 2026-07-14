@@ -63,33 +63,58 @@ func (p *Proxy) SetDiscoveryCache(c *discovery.Cache) {
 	p.cache = c
 }
 
-func (p *Proxy) ChatCompletions(ctx context.Context, w http.ResponseWriter, sel *routing.Selector, directive string, body []byte, isStream bool) {
+func (p *Proxy) ChatCompletions(ctx context.Context, w http.ResponseWriter, sel *routing.Selector, directive string, body []byte, isStream bool) *Outcome {
+	out := &Outcome{Stream: isStream}
 	resolved, err := sel.Resolve(directive)
 	if err != nil {
 		writeProxyError(w, err)
-		return
+		out.Status = proxyErrorStatus(err)
+		out.ErrorClass = "resolve"
+		return out
 	}
+	out.ProviderSlug = resolved.Provider.Slug
+	out.ModelName = resolved.ModelName
 
 	fwdBody, rerr := rewriteModel(body, resolved.ModelName)
 	if rerr != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid_request", rerr.Error())
-		return
+		out.Status = http.StatusBadRequest
+		out.ErrorClass = "client"
+		return out
+	}
+	if isStream && resolved.Provider.Protocol == "openai" {
+		fwdBody = ensureStreamIncludeUsage(fwdBody)
 	}
 
 	if resolved.AliasRouting != "" {
-		p.forwardWithRetry(ctx, w, resolved, sel, directive, fwdBody, isStream)
-		return
+		return p.forwardWithRetry(ctx, w, resolved, sel, directive, fwdBody, isStream, out)
 	}
 
-	result := p.forwardOnce(ctx, resolved.Provider, resolved.APIKey, fwdBody, isStream, w)
-	if result.err != nil {
+	started := time.Now()
+	var capture *usageCaptureWriter
+	writeTo := w
+	if isStream {
+		capture = &usageCaptureWriter{ResponseWriter: w}
+		writeTo = capture
+	}
+	result := p.forwardOnce(ctx, resolved.Provider, resolved.APIKey, fwdBody, isStream, writeTo)
+	appendAttempt(out, resolved.Provider.Slug, resolved.ModelName, resolved.APIKey.ID, result, started)
+	if capture != nil {
+		out.TokensPrompt = capture.prompt
+		out.TokensCompletion = capture.completion
+	}
+	if result.err != nil && !result.wrote {
 		writeJSONError(w, http.StatusBadGateway, "upstream_error", result.err.Error())
-		return
+		out.Status = http.StatusBadGateway
+		out.ErrorClass = "down"
+		return out
 	}
 	if result.wrote {
-		return
+		finalizeStreamOutcome(out, result)
+		return out
 	}
 	p.writeJSONResponse(w, result)
+	return out
 }
 
 func (p *Proxy) forwardOnce(ctx context.Context, prov model.Provider, apiKey model.APIKey, body []byte, isStream bool, w http.ResponseWriter) forwardResult {
@@ -139,9 +164,11 @@ func (p *Proxy) forward(ctx context.Context, proto protocol.Protocol, prov model
 	}
 
 	if isStream {
-		includeUsage := parsedReq.StreamOpts != nil && parsedReq.StreamOpts.IncludeUsage
-		if err := proto.TranslateStream(resp.Body, w, parsedReq.Model, includeUsage, p.logger); err != nil {
-			return forwardResult{status: 200, err: err, wrote: true}
+		// Always request usage emission from translators (Anthropic/Gemini) so
+		// the access log can capture tokens. OpenAI passthrough ignores the flag
+		// and relies on ensureStreamIncludeUsage on the upstream body instead.
+		if err := proto.TranslateStream(resp.Body, w, parsedReq.Model, true, p.logger); err != nil {
+			return forwardResult{status: http.StatusBadGateway, err: err, wrote: true}
 		}
 		return forwardResult{status: 200, wrote: true}
 	}
@@ -182,38 +209,73 @@ func (p *Proxy) bufferJSON(resp *http.Response) forwardResult {
 	return forwardResult{status: resp.StatusCode, body: body, header: resp.Header}
 }
 
-func (p *Proxy) forwardWithRetry(ctx context.Context, w http.ResponseWriter, resolved *routing.Resolved, sel *routing.Selector, directive string, body []byte, isStream bool) {
+func (p *Proxy) forwardWithRetry(ctx context.Context, w http.ResponseWriter, resolved *routing.Resolved, sel *routing.Selector, directive string, body []byte, isStream bool, out *Outcome) *Outcome {
 	alias, err := sel.LookupAlias(directive)
 	if err != nil || alias == nil {
-		result := p.forwardOnce(ctx, resolved.Provider, resolved.APIKey, body, isStream, w)
-		if result.err != nil {
+		started := time.Now()
+		var capture *usageCaptureWriter
+		writeTo := w
+		if isStream {
+			capture = &usageCaptureWriter{ResponseWriter: w}
+			writeTo = capture
+		}
+		result := p.forwardOnce(ctx, resolved.Provider, resolved.APIKey, body, isStream, writeTo)
+		appendAttempt(out, resolved.Provider.Slug, resolved.ModelName, resolved.APIKey.ID, result, started)
+		if capture != nil {
+			out.TokensPrompt = capture.prompt
+			out.TokensCompletion = capture.completion
+		}
+		if result.err != nil && !result.wrote {
 			writeJSONError(w, http.StatusBadGateway, "upstream_error", result.err.Error())
-			return
+			out.Status = http.StatusBadGateway
+			out.ErrorClass = "down"
+			return out
 		}
-		if !result.wrote {
-			p.writeJSONResponse(w, result)
+		if result.wrote {
+			finalizeStreamOutcome(out, result)
+			return out
 		}
-		return
+		p.writeJSONResponse(w, result)
+		return out
 	}
+	out.AliasName = alias.Name
 
 	tried := make(map[string]bool)
 	tried[resolved.Provider.ID+":"+resolved.ModelName] = true
 
-	result := p.forwardOnce(ctx, resolved.Provider, resolved.APIKey, body, isStream, w)
+	fwdBody := body
+	if isStream && resolved.Provider.Protocol == "openai" {
+		fwdBody = ensureStreamIncludeUsage(body)
+	}
+
+	started := time.Now()
+	var capture *usageCaptureWriter
+	writeTo := w
+	if isStream {
+		capture = &usageCaptureWriter{ResponseWriter: w}
+		writeTo = capture
+	}
+	result := p.forwardOnce(ctx, resolved.Provider, resolved.APIKey, fwdBody, isStream, writeTo)
 	// TODO(mid-stream-failover): if the stream already started writing (result.wrote)
 	// and the upstream cuts mid-SSE (e.g. max output tokens, reset, 5xx), we cannot
 	// retry without corrupting the client's SSE stream. Future work: buffer first N
 	// events, only retry if no content has been flushed yet, or implement upstream
 	// request range replay. Motivated by providers that limit output tokens and abort
 	// mid-response.
+	appendAttempt(out, resolved.Provider.Slug, resolved.ModelName, resolved.APIKey.ID, result, started)
+	if capture != nil {
+		out.TokensPrompt = capture.prompt
+		out.TokensCompletion = capture.completion
+	}
 	if result.wrote {
-		return
+		finalizeStreamOutcome(out, result)
+		return out
 	}
 
 	fc := classifyResult(result)
 	if !shouldFailover(fc) {
 		p.writeJSONResponse(w, result)
-		return
+		return out
 	}
 
 	if shouldSoftStale(fc) {
@@ -232,7 +294,7 @@ func (p *Proxy) forwardWithRetry(ctx context.Context, w http.ResponseWriter, res
 		nextTarget, nextProv, ferr := sel.NextFailoverTarget(*alias, tried)
 		if ferr != nil {
 			p.writeJSONResponse(w, result)
-			return
+			return out
 		}
 		key := nextTarget.ProviderID + ":" + nextTarget.ModelName
 		tried[key] = true
@@ -247,15 +309,31 @@ func (p *Proxy) forwardWithRetry(ctx context.Context, w http.ResponseWriter, res
 		if rerr != nil {
 			continue
 		}
+		if isStream && nextProv.Protocol == "openai" {
+			nextBody = ensureStreamIncludeUsage(nextBody)
+		}
 
-		nextResult := p.forwardOnce(ctx, *nextProv, apiKeyFull, nextBody, isStream, w)
+		attemptStart := time.Now()
+		var capture *usageCaptureWriter
+		writeTo := w
+		if isStream {
+			capture = &usageCaptureWriter{ResponseWriter: w}
+			writeTo = capture
+		}
+		nextResult := p.forwardOnce(ctx, *nextProv, apiKeyFull, nextBody, isStream, writeTo)
+		appendAttempt(out, nextProv.Slug, nextTarget.ModelName, apiKeyFull.ID, nextResult, attemptStart)
+		if capture != nil {
+			out.TokensPrompt = capture.prompt
+			out.TokensCompletion = capture.completion
+		}
 		if nextResult.wrote {
-			return
+			finalizeStreamOutcome(out, nextResult)
+			return out
 		}
 		nextFc := classifyResult(nextResult)
 		if !shouldFailover(nextFc) {
 			p.writeJSONResponse(w, nextResult)
-			return
+			return out
 		}
 		if shouldSoftStale(nextFc) {
 			p.markSoftStale(nextProv.ID, nextTarget.ModelName)

@@ -73,7 +73,9 @@ func main() {
 	cache.Start(discCtx)
 	defer cache.Stop()
 
-	adminHandler, err := admin.NewRouter(db, secret, cache, pool, cfg.CookieSecure)
+	logStore := metrics.NewLogStore(cfg.LogsRingSize)
+
+	adminHandler, err := admin.NewRouter(db, secret, cache, pool, cfg.CookieSecure, logStore)
 	if err != nil {
 		logger.Error("failed to create admin router", "err", err)
 		os.Exit(1)
@@ -82,7 +84,7 @@ func main() {
 	sel := routing.NewSelector(db, cache, pool)
 	prox := proxy.New(pool, cfg.ProxyTimeout, cfg.KeyCooldown, logger)
 	prox.SetDiscoveryCache(cache)
-	publicHandler := public.NewRouter(db, cache, prox, sel, logger)
+	publicHandler := public.NewRouter(db, cache, prox, sel, logger, logStore)
 
 	startedAt := time.Now()
 	r := chi.NewRouter()

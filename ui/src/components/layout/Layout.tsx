@@ -16,6 +16,8 @@ const TITLES: Record<string, string> = {
   "/aliases": "Aliases",
   "/gateway-keys": "Gateway Keys",
   "/discovery": "Discovery",
+  "/logs": "Logs",
+  "/logs/requests": "Request logs",
 };
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -28,7 +30,13 @@ export function Layout({ children }: { children: ReactNode }) {
     }
   }, [healthz.data]);
 
-  const title = TITLES[pathname] ?? (pathname.startsWith("/providers/") ? "Provider" : "AstreoGateway");
+  const title =
+    TITLES[pathname] ??
+    (pathname.startsWith("/providers/")
+      ? "Provider"
+      : pathname.startsWith("/logs")
+        ? "Logs"
+        : "AstreoGateway");
 
   return (
     <div className="flex min-h-screen bg-background">

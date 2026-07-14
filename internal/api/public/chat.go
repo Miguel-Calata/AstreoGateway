@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"astreoGateway/internal/metrics"
 	"astreoGateway/internal/proxy"
 	"astreoGateway/internal/routing"
 )
@@ -15,6 +16,11 @@ const maxBodySize = 10 * 1024 * 1024
 
 func chatHandler(prox *proxy.Proxy, sel *routing.Selector, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		entry := metrics.EntryFromContext(r.Context())
+		if entry != nil {
+			entry.GatewayKeyID = GatewayKeyIDFromContext(r.Context())
+		}
+
 		body, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize))
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, "invalid_request", "failed to read body")
@@ -30,9 +36,43 @@ func chatHandler(prox *proxy.Proxy, sel *routing.Selector, logger *slog.Logger) 
 			writeJSONError(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
+		if entry != nil {
+			entry.Directive = directive
+			entry.Stream = isStream
+		}
 
-		prox.ChatCompletions(r.Context(), w, sel, directive, body, isStream)
+		out := prox.ChatCompletions(r.Context(), w, sel, directive, body, isStream)
+		applyOutcome(entry, out)
 	}
+}
+
+func applyOutcome(entry *metrics.RequestLog, out *proxy.Outcome) {
+	if entry == nil || out == nil {
+		return
+	}
+	attempts := make([]metrics.Attempt, len(out.Attempts))
+	for i, a := range out.Attempts {
+		attempts[i] = metrics.Attempt{
+			ProviderSlug: a.ProviderSlug,
+			ModelName:    a.ModelName,
+			KeyID:        a.KeyID,
+			Status:       a.Status,
+			FailClass:    a.FailClass,
+			DurationMs:   a.DurationMs,
+		}
+	}
+	metrics.ApplyProxyOutcome(
+		entry,
+		out.ProviderSlug,
+		out.ModelName,
+		out.AliasName,
+		out.ErrorClass,
+		out.Status,
+		out.TokensPrompt,
+		out.TokensCompletion,
+		out.Stream,
+		attempts,
+	)
 }
 
 func peekModelAndStream(body []byte) (string, bool, error) {

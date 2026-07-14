@@ -79,6 +79,106 @@ export interface Healthz {
   uptime_seconds: number;
 }
 
+export interface RequestAttempt {
+  provider_slug: string;
+  model_name: string;
+  key_id: string;
+  status: number;
+  fail_class: string;
+  duration_ms: number;
+}
+
+export interface RequestLog {
+  id: string;
+  request_id: string;
+  ts: number;
+  gateway_key_id: string;
+  method: string;
+  path: string;
+  directive: string;
+  resolved_provider_slug: string;
+  resolved_model: string;
+  alias_name: string;
+  status: number;
+  attempts: number;
+  duration_ms: number;
+  tokens_prompt: number;
+  tokens_completion: number;
+  stream: boolean;
+  error_class: string;
+  client_ip: string;
+  attempts_detail?: RequestAttempt[];
+}
+
+export interface RequestLogsList {
+  items: RequestLog[];
+  total: number;
+  oldest_ts: number;
+  capacity: number;
+  size: number;
+  truncated: boolean;
+}
+
+export interface ProviderStat {
+  slug: string;
+  requests: number;
+  tokens: number;
+  errors: number;
+}
+
+export interface GatewayKeyStat {
+  id: string;
+  requests: number;
+  tokens: number;
+}
+
+export interface StatusClassStat {
+  class: string;
+  count: number;
+}
+
+export interface TimeBucket {
+  ts: number;
+  requests_ok: number;
+  requests_client_err: number;
+  requests_server_err: number;
+  tokens: number;
+  tokens_prompt: number;
+  tokens_completion: number;
+}
+
+export interface RequestLogsStats {
+  window: string;
+  from: number;
+  to: number;
+  oldest_ts: number;
+  truncated: boolean;
+  total_requests: number;
+  total_tokens: number;
+  total_tokens_prompt: number;
+  total_tokens_completion: number;
+  error_rate: number;
+  p95_duration_ms: number;
+  by_provider: ProviderStat[];
+  by_gateway_key: GatewayKeyStat[];
+  by_status_class: StatusClassStat[];
+  ts_buckets: TimeBucket[];
+}
+
+export type StatsWindow = "1h" | "24h" | "7d";
+
+export interface RequestLogsQuery {
+  from?: number;
+  to?: number;
+  gateway_key_id?: string;
+  provider_slug?: string;
+  status_class?: string;
+  directive?: string;
+  limit?: number;
+  offset?: number;
+  order?: string;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -165,6 +265,27 @@ export const api = {
   discoveryStale: () => apiFetch<StaleTarget[] | null>("/admin/api/discovery/stale"),
   refreshProvider: (id: string) =>
     apiFetch<{ status: string; provider: string }>(`/admin/api/discovery/refresh?provider=${encodeURIComponent(id)}`, { method: "POST" }),
+
+  listRequestLogs: (q: RequestLogsQuery = {}) => {
+    const params = new URLSearchParams();
+    if (q.from) params.set("from", String(q.from));
+    if (q.to) params.set("to", String(q.to));
+    if (q.gateway_key_id) params.set("gateway_key_id", q.gateway_key_id);
+    if (q.provider_slug) params.set("provider_slug", q.provider_slug);
+    if (q.status_class) params.set("status_class", q.status_class);
+    if (q.directive) params.set("directive", q.directive);
+    if (q.limit) params.set("limit", String(q.limit));
+    if (q.offset) params.set("offset", String(q.offset));
+    if (q.order) params.set("order", q.order);
+    const qs = params.toString();
+    return apiFetch<RequestLogsList>(`/admin/api/request-logs${qs ? `?${qs}` : ""}`);
+  },
+  requestLogsStats: (window: StatsWindow = "24h", groupBy?: string) => {
+    const params = new URLSearchParams({ window });
+    if (groupBy) params.set("group_by", groupBy);
+    return apiFetch<RequestLogsStats>(`/admin/api/request-logs/stats?${params}`);
+  },
+  clearRequestLogs: () => apiFetch<void>("/admin/api/request-logs", { method: "DELETE" }),
 
   healthz: () => apiFetch<Healthz>("/healthz"),
 };

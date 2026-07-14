@@ -32,3 +32,40 @@ export function protocolVariant(p: string): "secondary" | "warning" | "default" 
   if (p === "gemini") return "default";
   return "secondary";
 }
+
+export function formatNumber(n: number): string {
+  if (!Number.isFinite(n)) return "0";
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 10_000) return `${(n / 1_000).toFixed(1)}k`;
+  if (Math.abs(n) >= 1_000) return n.toLocaleString();
+  return String(Math.round(n));
+}
+
+export function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${(ms / 60_000).toFixed(1)}m`;
+}
+
+export function formatPercent(rate: number): string {
+  if (!Number.isFinite(rate)) return "0%";
+  return `${(rate * 100).toFixed(rate < 0.1 ? 1 : 0)}%`;
+}
+
+export function formatTsMs(ts: number): string {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleString();
+}
+
+export function formatRelativeMs(ts: number): string {
+  if (!ts) return "—";
+  return formatRelative(new Date(ts).toISOString());
+}
+
+export function statusVariant(status: number): "success" | "warning" | "destructive" | "secondary" {
+  if (status >= 200 && status < 400) return "success";
+  if (status >= 400 && status < 500) return "warning";
+  if (status >= 500) return "destructive";
+  return "secondary";
+}

@@ -78,7 +78,7 @@ func TestEmbeddingsPublicE2E(t *testing.T) {
 	cache.InjectTestModels("prov1", []discovery.Model{{ProviderID: "prov1", ModelID: "text-embedding-3-small"}})
 	sel := routing.NewSelector(db, cache, pool)
 	prox := proxy.New(pool, 5*time.Second, 30*time.Second, nopLogger)
-	handler := NewRouter(db, cache, prox, sel, nopLogger)
+	handler := NewRouter(db, cache, prox, sel, nopLogger, nil)
 	r := chi.NewRouter()
 	r.Route("/v1", func(r chi.Router) { r.Mount("/", handler) })
 	ts := httptest.NewServer(r)

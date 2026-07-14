@@ -43,7 +43,7 @@ func testSetupSecure(t *testing.T, cookieSecure bool) (*chi.Mux, string, *keypoo
 	}
 	pool := keypool.New()
 	cache := discovery.New(db, pool, 5*time.Minute, 5*time.Second, nopLogger)
-	adminHandler, err := NewRouter(db, secret, cache, pool, cookieSecure)
+	adminHandler, err := NewRouter(db, secret, cache, pool, cookieSecure, nil)
 	if err != nil {
 		t.Fatalf("new router: %v", err)
 	}

@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import {
-  LayoutGrid, Server, Shuffle, KeyRound, Telescope, SpaceIcon,
+  LayoutGrid, Server, Shuffle, KeyRound, Telescope, SpaceIcon, ScrollText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useHealthz, useStale } from "@/lib/queries";
@@ -12,6 +12,7 @@ const NAV = [
   { to: "/aliases", label: "Aliases", icon: Shuffle },
   { to: "/gateway-keys", label: "Gateway Keys", icon: KeyRound },
   { to: "/discovery", label: "Discovery", icon: Telescope },
+  { to: "/logs", label: "Logs", icon: ScrollText },
 ];
 
 export function Sidebar() {

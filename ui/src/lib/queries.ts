@@ -1,5 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type Alias, type ApiKey, type DiscoveryMap, type Provider, type RoutingMode } from "./api";
+import {
+  api,
+  type Alias,
+  type ApiKey,
+  type DiscoveryMap,
+  type Provider,
+  type RequestLogsQuery,
+  type RoutingMode,
+  type StatsWindow,
+} from "./api";
 
 const q = {
   bootstrap: ["bootstrap"] as const,
@@ -13,6 +22,8 @@ const q = {
   discovery: ["discovery"] as const,
   stale: ["stale"] as const,
   healthz: ["healthz"] as const,
+  requestLogs: (params: RequestLogsQuery) => ["request-logs", params] as const,
+  requestLogsStats: (window: StatsWindow) => ["request-logs-stats", window] as const,
 };
 
 // --- Auth ---
@@ -228,5 +239,33 @@ export const useRefreshProvider = () => {
 // --- Health ---
 export const useHealthz = () =>
   useQuery({ queryKey: q.healthz, queryFn: api.healthz, refetchInterval: 30_000, retry: 0 });
+
+// --- Request logs ---
+export const useRequestLogs = (params: RequestLogsQuery = {}, opts?: { refetchInterval?: number | false }) =>
+  useQuery({
+    queryKey: q.requestLogs(params),
+    queryFn: () => api.listRequestLogs(params),
+    refetchInterval: opts?.refetchInterval,
+    placeholderData: (prev) => prev,
+  });
+
+export const useRequestLogsStats = (window: StatsWindow = "24h") =>
+  useQuery({
+    queryKey: q.requestLogsStats(window),
+    queryFn: () => api.requestLogsStats(window),
+    refetchInterval: 15_000,
+    placeholderData: (prev) => prev,
+  });
+
+export const useClearRequestLogs = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.clearRequestLogs,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["request-logs"] });
+      qc.invalidateQueries({ queryKey: ["request-logs-stats"] });
+    },
+  });
+};
 
 export const ROUTING_MODES: RoutingMode[] = ["random", "round_robin", "priority", "failover"];

@@ -20,6 +20,7 @@ type Config struct {
 	ProxyTimeout     time.Duration
 	KeyCooldown      time.Duration
 	CookieSecure     bool
+	LogsRingSize     int
 }
 
 // Load parses env vars and flags into a Config.
@@ -33,6 +34,7 @@ func Load() (*Config, error) {
 	proxyTimeout := fs.String("proxy-timeout", envOr("AIGW_PROXY_TIMEOUT", "120s"), "HTTP timeout for proxied requests")
 	keyCooldown := fs.String("key-cooldown", envOr("AIGW_KEY_COOLDOWN", "30s"), "cooldown duration after 429/5xx errors")
 	cookieSecure := fs.Bool("cookie-secure", envOrBool("AIGW_COOKIE_SECURE", false), "set Secure flag on admin session cookie (use behind HTTPS)")
+	logsRingSize := fs.Int("logs-ring-size", envOrInt("AIGW_LOGS_RING_SIZE", 10000), "in-memory request log ring buffer capacity")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return nil, err
 	}
@@ -54,6 +56,10 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid key-cooldown %q: %w", *keyCooldown, err)
 	}
 
+	ringSize := *logsRingSize
+	if ringSize <= 0 {
+		ringSize = 10000
+	}
 	cfg := &Config{
 		Addr:             *addr,
 		DBPath:           *dbPath,
@@ -62,6 +68,7 @@ func Load() (*Config, error) {
 		ProxyTimeout:     proxy,
 		KeyCooldown:      cooldown,
 		CookieSecure:     *cookieSecure,
+		LogsRingSize:     ringSize,
 	}
 	switch strings.ToLower(*logLevel) {
 	case "debug":
@@ -96,4 +103,19 @@ func envOrBool(key string, def bool) bool {
 	default:
 		return def
 	}
+}
+
+func envOrInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	var n int
+	for _, c := range v {
+		if c < '0' || c > '9' {
+			return def
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
 }

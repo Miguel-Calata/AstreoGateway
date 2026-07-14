@@ -39,7 +39,7 @@ func testSetup(t *testing.T) (*chi.Mux, *discovery.Cache, string) {
 	cache := discovery.New(db, pool, 5*time.Minute, 5*time.Second, nopLogger)
 	sel := routing.NewSelector(db, cache, pool)
 	prox := proxy.New(pool, 5*time.Second, 30*time.Second, nopLogger)
-	publicHandler := NewRouter(db, cache, prox, sel, nopLogger)
+	publicHandler := NewRouter(db, cache, prox, sel, nopLogger, nil)
 
 	r := chi.NewRouter()
 	r.Route("/v1", func(r chi.Router) {
@@ -114,7 +114,7 @@ func TestListModelsReturnsModelsAndAliases(t *testing.T) {
 	cache := discovery.New(db, pool, 5*time.Minute, 5*time.Second, nopLogger)
 	sel := routing.NewSelector(db, cache, pool)
 	prox := proxy.New(pool, 5*time.Second, 30*time.Second, nopLogger)
-	publicHandler := NewRouter(db, cache, prox, sel, nopLogger)
+	publicHandler := NewRouter(db, cache, prox, sel, nopLogger, nil)
 	r := chi.NewRouter()
 	r.Route("/v1", func(r chi.Router) {
 		r.Mount("/", publicHandler)
@@ -186,7 +186,7 @@ func TestListModelsUsesProviderSlugPrefix(t *testing.T) {
 	})
 	sel := routing.NewSelector(db, cache, pool)
 	prox := proxy.New(pool, 5*time.Second, 30*time.Second, nopLogger)
-	publicHandler := NewRouter(db, cache, prox, sel, nopLogger)
+	publicHandler := NewRouter(db, cache, prox, sel, nopLogger, nil)
 	r := chi.NewRouter()
 	r.Route("/v1", func(r chi.Router) {
 		r.Mount("/", publicHandler)
