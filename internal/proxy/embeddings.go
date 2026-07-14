@@ -29,8 +29,8 @@ func (p *Proxy) Embeddings(ctx context.Context, w http.ResponseWriter, sel *rout
 		return
 	}
 
-	if resolved.AliasRouting == "failover" {
-		p.forwardEmbeddingsWithFailover(ctx, w, resolved, sel, directive, fwdBody)
+	if resolved.AliasRouting != "" {
+		p.forwardEmbeddingsWithRetry(ctx, w, resolved, sel, directive, fwdBody)
 		return
 	}
 
@@ -63,13 +63,13 @@ func (p *Proxy) forwardOpenAIEmbeddings(ctx context.Context, prov model.Provider
 	}
 	defer resp.Body.Close()
 
-	if isRetryable(resp.StatusCode) {
+	if shouldCooldown(classifyUpstream(resp.StatusCode, nil)) {
 		p.pool.MarkCooldown(prov.ID, apiKey.ID, p.keyCooldown)
 	}
 	return p.bufferJSON(resp)
 }
 
-func (p *Proxy) forwardEmbeddingsWithFailover(ctx context.Context, w http.ResponseWriter, resolved *routing.Resolved, sel *routing.Selector, directive string, body []byte) {
+func (p *Proxy) forwardEmbeddingsWithRetry(ctx context.Context, w http.ResponseWriter, resolved *routing.Resolved, sel *routing.Selector, directive string, body []byte) {
 	alias, err := sel.LookupAlias(directive)
 	if err != nil || alias == nil {
 		result := p.forwardOpenAIEmbeddings(ctx, resolved.Provider, resolved.APIKey, body)
@@ -85,21 +85,19 @@ func (p *Proxy) forwardEmbeddingsWithFailover(ctx context.Context, w http.Respon
 	tried[resolved.Provider.ID+":"+resolved.ModelName] = true
 
 	result := p.forwardOpenAIEmbeddings(ctx, resolved.Provider, resolved.APIKey, body)
-	if result.err != nil {
-		// network errors: try next if possible
-	} else if !isRetryable(result.status) {
-		p.writeJSONResponse(w, result)
+	fc := classifyResult(result)
+	if !shouldFailover(fc) {
+		writeResult(w, result)
 		return
+	}
+	if shouldSoftStale(fc) {
+		p.markSoftStale(resolved.Provider.ID, resolved.ModelName)
 	}
 
 	for {
 		nextTarget, nextProv, ferr := sel.NextFailoverTarget(*alias, tried)
 		if ferr != nil {
-			if result.err != nil {
-				writeJSONError(w, http.StatusBadGateway, "upstream_error", result.err.Error())
-				return
-			}
-			p.writeJSONResponse(w, result)
+			writeResult(w, result)
 			return
 		}
 		key := nextTarget.ProviderID + ":" + nextTarget.ModelName
@@ -119,14 +117,24 @@ func (p *Proxy) forwardEmbeddingsWithFailover(ctx context.Context, w http.Respon
 			continue
 		}
 		nextResult := p.forwardOpenAIEmbeddings(ctx, *nextProv, apiKeyFull, fwdBody)
-		if nextResult.err != nil {
-			result = nextResult
-			continue
-		}
-		if !isRetryable(nextResult.status) {
-			p.writeJSONResponse(w, nextResult)
+		nextFc := classifyResult(nextResult)
+		if !shouldFailover(nextFc) {
+			writeResult(w, nextResult)
 			return
+		}
+		if shouldSoftStale(nextFc) {
+			p.markSoftStale(nextProv.ID, nextTarget.ModelName)
 		}
 		result = nextResult
 	}
+}
+
+func writeResult(w http.ResponseWriter, r forwardResult) {
+	if r.err != nil {
+		writeJSONError(w, http.StatusBadGateway, "upstream_error", r.err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(r.status)
+	w.Write(r.body)
 }

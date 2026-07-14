@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -22,6 +23,7 @@ cheap openai:gpt-4o-mini`;
 export function ImportAliasesSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const [text, setText] = useState("");
   const [defaultRouting, setDefaultRouting] = useState<RoutingMode>("failover");
+  const [allowUnknownModels, setAllowUnknownModels] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const providers = useProviders();
@@ -36,12 +38,15 @@ export function ImportAliasesSheet({ open, onOpenChange }: { open: boolean; onOp
       providers: providers.data,
       existingNames: (aliases.data ?? []).map((a) => a.name),
       discovery: discovery.data,
+      allowUnknownModels,
     });
-  }, [text, defaultRouting, providers.data, aliases.data, discovery.data]);
+  }, [text, defaultRouting, allowUnknownModels, providers.data, aliases.data, discovery.data]);
 
   const okCount = rows.filter((r) => r.status === "ok").length;
+  const warnCount = rows.filter((r) => r.status === "warn").length;
   const skipCount = rows.filter((r) => r.status === "skip").length;
   const errCount = rows.filter((r) => r.status === "error").length;
+  const creatable = allowUnknownModels ? okCount + warnCount : okCount;
 
   const onApply = async () => {
     const toCreate = rows.map(rowToAlias).filter((a): a is NonNullable<typeof a> => a != null);
@@ -116,9 +121,17 @@ export function ImportAliasesSheet({ open, onOpenChange }: { open: boolean; onOp
 
           {rows.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Badge variant="success">{okCount} ready</Badge>
+              <Badge variant="success">{okCount} ok</Badge>
+              {warnCount > 0 && <Badge variant="warning">{warnCount} warn</Badge>}
               {skipCount > 0 && <Badge variant="secondary">{skipCount} skip</Badge>}
               {errCount > 0 && <Badge variant="destructive">{errCount} error</Badge>}
+            </div>
+          )}
+
+          {warnCount > 0 && (
+            <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
+              <Switch checked={allowUnknownModels} onCheckedChange={setAllowUnknownModels} />
+              <span>Allow models not in discovery</span>
             </div>
           )}
 
@@ -146,8 +159,9 @@ export function ImportAliasesSheet({ open, onOpenChange }: { open: boolean; onOp
                         <Badge
                           variant={
                             r.status === "ok" ? "success"
-                              : r.status === "skip" ? "secondary"
-                                : "destructive"
+                              : r.status === "warn" ? "warning"
+                                : r.status === "skip" ? "secondary"
+                                  : "destructive"
                           }
                         >
                           {r.status}
@@ -177,8 +191,8 @@ export function ImportAliasesSheet({ open, onOpenChange }: { open: boolean; onOp
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button type="button" onClick={onApply} disabled={busy || okCount === 0}>
-            {busy ? <Spinner /> : `Create ${okCount || ""}`.trim()}
+          <Button type="button" onClick={onApply} disabled={busy || creatable === 0}>
+            {busy ? <Spinner /> : `Create ${creatable || ""}`.trim()}
           </Button>
         </SheetFooter>
       </SheetContent>

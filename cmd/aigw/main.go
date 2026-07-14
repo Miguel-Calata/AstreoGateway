@@ -81,6 +81,7 @@ func main() {
 
 	sel := routing.NewSelector(db, cache, pool)
 	prox := proxy.New(pool, cfg.ProxyTimeout, cfg.KeyCooldown, logger)
+	prox.SetDiscoveryCache(cache)
 	publicHandler := public.NewRouter(db, cache, prox, sel, logger)
 
 	startedAt := time.Now()

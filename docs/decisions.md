@@ -64,18 +64,48 @@ Estrategias de routing por alias:
 - `priority` (orden por `position` en `alias_targets`)
 - `failover` (orden por `position`, prueba el siguiente si el anterior falla)
 
+**Selección vs reintento**: La estrategia (`random`, `rr`, `priority`, `failover`)
+solo determina el **primer** target. Si ese target falla con un error recuperable,
+**todos** los modos reintentan los siguientes targets por orden de `position`
+(saltando stale y disabled). Acceso directo `provider:model` **no** reintenta.
+
+### Política de errores y reintentos
+
+| Clase | Códigos / caso | Cooldown key | Reintentar | Soft-stale | Log |
+|-------|----------------|--------------|-----------|------------|-----|
+| Rate limit | 429 | sí | sí | no | warn |
+| Upstream down | 5xx, timeout, network error | sí (solo 5xx) | sí | no | warn |
+| Model missing | 404 | no | sí | sí | warn |
+| Auth / billing | 401, 403 | no | sí | no | error |
+| Client bad request | 400, 422 | no | **no** | no | info |
+
+Si se agotan targets → devolver el último error útil.
+**Nunca** borrar targets de SQLite por stale.
+
+**Mid-stream failover**: Si el stream ya empezó a escribirse y el upstream
+corta (max output tokens, reset, 5xx mid-SSE), hoy no hay reintento.
+Es un TODO para el futuro (buffer de headers / replay limitado).
+Motivación: algunos providers limitan tokens de salida y abortan mid-stream.
+
 Futuras: `weighted`, `least_latency`, `cost_aware`, `health_based`.
 
 Acceso directo vía `provider:model` **salta** el routing de alias: se elige
-ese proveedor directamente.
+ese proveedor directamente. Sin reintento.
 
 Mismo `model_name` en dos proveedores como targets distintos del mismo alias:
 **permitido**. Es justo lo que habilita failover real.
 
 ## 5. Estado `stale` de modelos
 
-Cuando un refresh del proveedor detecta que un modelo referenciado por un
-target ya no aparece en `/v1/models` upstream:
+Dos fuentes de stale:
+
+1. **Discovery stale**: Cuando un refresh del proveedor detecta que un modelo
+   referenciado por un target ya no aparece en `/v1/models` upstream.
+2. **Runtime stale**: Cuando un request a un modelo devuelve 404 (model/function
+   not found), se marca soft-stale en memoria para ese target. Se limpia
+   automáticamente en el siguiente refresh exitoso del proveedor.
+
+Comportamiento en ambos casos:
 
 - **No eliminar** el target (mutar config silenciosamente pierde intent).
 - **No deshabilitar** el alias entero.
@@ -91,6 +121,17 @@ target ya no aparece en `/v1/models` upstream:
 Fundamento: el alias es config persistida por el admin (intencional); la
 disponibilidad upstream es volátil. Separar ambas cosas evita que un cierre
 temporal o discontinuación permanente te borre el routing definido.
+
+### 5a. Validación de modelos al crear/importar
+
+Al crear o importar aliases (UI y API):
+
+- Si un target `provider:model` no aparece en discovery del proveedor → **warn**
+  (no permitir creación salvo checkbox "Allow models not in discovery").
+- El backend (`POST/PUT /admin/api/aliases`) rechaza con 400 si un model no
+  está en discovery, salvo `?allow_unknown_models=1`.
+- En la UI de import, el override degrada los rows "warn" a "ok".
+- No se valida si discovery está vacío o no cacheado (best-effort).
 
 ## 6. Auth de entrada: gateway keys
 

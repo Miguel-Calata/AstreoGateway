@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"astreoGateway/internal/discovery"
 	"astreoGateway/internal/keypool"
 	"astreoGateway/internal/model"
 	"astreoGateway/internal/protocol"
@@ -17,6 +18,21 @@ import (
 )
 
 var ErrUpstreamTimeout = fmt.Errorf("upstream timeout")
+
+type failClass int
+
+const (
+	failNone          failClass = iota
+	failDown                    // 5xx, timeout, network error
+	failRate                    // 429
+	failModelMissing            // 404 model/function not found
+	failAuth                    // 401, 403
+	failClient                  // 400, 422 — no failover
+)
+
+func shouldFailover(c failClass) bool { return c != failNone && c != failClient }
+func shouldCooldown(c failClass) bool { return c == failRate || c == failDown }
+func shouldSoftStale(c failClass) bool { return c == failModelMissing }
 
 type forwardResult struct {
 	status int
@@ -31,6 +47,7 @@ type Proxy struct {
 	httpC       *http.Client
 	logger      *slog.Logger
 	keyCooldown time.Duration
+	cache       *discovery.Cache
 }
 
 func New(pool *keypool.Pool, timeout, keyCooldown time.Duration, logger *slog.Logger) *Proxy {
@@ -40,6 +57,10 @@ func New(pool *keypool.Pool, timeout, keyCooldown time.Duration, logger *slog.Lo
 		logger:      logger,
 		keyCooldown: keyCooldown,
 	}
+}
+
+func (p *Proxy) SetDiscoveryCache(c *discovery.Cache) {
+	p.cache = c
 }
 
 func (p *Proxy) ChatCompletions(ctx context.Context, w http.ResponseWriter, sel *routing.Selector, directive string, body []byte, isStream bool) {
@@ -55,8 +76,8 @@ func (p *Proxy) ChatCompletions(ctx context.Context, w http.ResponseWriter, sel 
 		return
 	}
 
-	if resolved.AliasRouting == "failover" {
-		p.forwardWithFailover(ctx, w, resolved, sel, directive, fwdBody, isStream)
+	if resolved.AliasRouting != "" {
+		p.forwardWithRetry(ctx, w, resolved, sel, directive, fwdBody, isStream)
 		return
 	}
 
@@ -108,7 +129,7 @@ func (p *Proxy) forward(ctx context.Context, proto protocol.Protocol, prov model
 	}
 	defer resp.Body.Close()
 
-	if isRetryable(resp.StatusCode) {
+	if shouldCooldown(classifyUpstream(resp.StatusCode, nil)) {
 		p.pool.MarkCooldown(prov.ID, apiKey.ID, p.keyCooldown)
 	}
 
@@ -161,7 +182,7 @@ func (p *Proxy) bufferJSON(resp *http.Response) forwardResult {
 	return forwardResult{status: resp.StatusCode, body: body, header: resp.Header}
 }
 
-func (p *Proxy) forwardWithFailover(ctx context.Context, w http.ResponseWriter, resolved *routing.Resolved, sel *routing.Selector, directive string, body []byte, isStream bool) {
+func (p *Proxy) forwardWithRetry(ctx context.Context, w http.ResponseWriter, resolved *routing.Resolved, sel *routing.Selector, directive string, body []byte, isStream bool) {
 	alias, err := sel.LookupAlias(directive)
 	if err != nil || alias == nil {
 		result := p.forwardOnce(ctx, resolved.Provider, resolved.APIKey, body, isStream, w)
@@ -179,13 +200,33 @@ func (p *Proxy) forwardWithFailover(ctx context.Context, w http.ResponseWriter, 
 	tried[resolved.Provider.ID+":"+resolved.ModelName] = true
 
 	result := p.forwardOnce(ctx, resolved.Provider, resolved.APIKey, body, isStream, w)
+	// TODO(mid-stream-failover): if the stream already started writing (result.wrote)
+	// and the upstream cuts mid-SSE (e.g. max output tokens, reset, 5xx), we cannot
+	// retry without corrupting the client's SSE stream. Future work: buffer first N
+	// events, only retry if no content has been flushed yet, or implement upstream
+	// request range replay. Motivated by providers that limit output tokens and abort
+	// mid-response.
 	if result.wrote {
 		return
 	}
-	if !isRetryable(result.status) {
+
+	fc := classifyResult(result)
+	if !shouldFailover(fc) {
 		p.writeJSONResponse(w, result)
 		return
 	}
+
+	if shouldSoftStale(fc) {
+		p.markSoftStale(resolved.Provider.ID, resolved.ModelName)
+	}
+
+	p.logger.Warn("proxy: retrying after upstream failure",
+		"alias", alias.Name,
+		"routing", resolved.AliasRouting,
+		"tried", resolved.Provider.ID+":"+resolved.ModelName,
+		"status", result.status,
+		"class", fc,
+	)
 
 	for {
 		nextTarget, nextProv, ferr := sel.NextFailoverTarget(*alias, tried)
@@ -202,16 +243,62 @@ func (p *Proxy) forwardWithFailover(ctx context.Context, w http.ResponseWriter, 
 		}
 		apiKeyFull := model.APIKey{ID: apiKey.ID, Value: apiKey.Value}
 
-		nextResult := p.forwardOnce(ctx, *nextProv, apiKeyFull, body, isStream, w)
+		nextBody, rerr := rewriteModel(body, nextTarget.ModelName)
+		if rerr != nil {
+			continue
+		}
+
+		nextResult := p.forwardOnce(ctx, *nextProv, apiKeyFull, nextBody, isStream, w)
 		if nextResult.wrote {
 			return
 		}
-		if !isRetryable(nextResult.status) {
+		nextFc := classifyResult(nextResult)
+		if !shouldFailover(nextFc) {
 			p.writeJSONResponse(w, nextResult)
 			return
 		}
+		if shouldSoftStale(nextFc) {
+			p.markSoftStale(nextProv.ID, nextTarget.ModelName)
+		}
+		p.logger.Warn("proxy: retrying after upstream failure",
+			"alias", alias.Name,
+			"routing", resolved.AliasRouting,
+			"tried", key,
+			"status", nextResult.status,
+			"class", nextFc,
+		)
 		result = nextResult
 	}
+}
+
+func (p *Proxy) markSoftStale(providerID, modelName string) {
+	if p.cache != nil {
+		p.cache.MarkRuntimeStale(providerID, modelName)
+	}
+}
+
+func classifyUpstream(status int, body []byte) failClass {
+	switch {
+	case status == 429:
+		return failRate
+	case status >= 500:
+		return failDown
+	case status == 404:
+		return failModelMissing
+	case status == 401 || status == 403:
+		return failAuth
+	case status == 400 || status == 422:
+		return failClient
+	default:
+		return failNone
+	}
+}
+
+func classifyResult(r forwardResult) failClass {
+	if r.err != nil {
+		return failDown
+	}
+	return classifyUpstream(r.status, r.body)
 }
 
 func wrapUpstreamError(body []byte, status int) []byte {
@@ -249,10 +336,6 @@ func rewriteModel(body []byte, modelName string) ([]byte, error) {
 	}
 	m["model"] = modelJSON
 	return json.Marshal(m)
-}
-
-func isRetryable(status int) bool {
-	return status == 429 || status >= 500
 }
 
 func writeProxyError(w http.ResponseWriter, err error) {

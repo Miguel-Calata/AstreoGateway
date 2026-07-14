@@ -16,7 +16,7 @@ export interface ParsedAliasLine {
   parseError?: string;
 }
 
-export type ResolveStatus = "ok" | "skip" | "error";
+export type ResolveStatus = "ok" | "warn" | "skip" | "error";
 
 export interface ResolvedAliasRow {
   line: number;
@@ -28,6 +28,7 @@ export interface ResolvedAliasRow {
   targetLabels?: string[];
   messages: string[];
   warnings: string[];
+  needsOverride: boolean;
 }
 
 export function isRoutingMode(s: string): s is RoutingMode {
@@ -101,6 +102,7 @@ export function resolveAliasLines(
     providers: Pick<Provider, "id" | "slug" | "name">[];
     existingNames: Set<string> | string[];
     discovery?: DiscoveryMap;
+    allowUnknownModels?: boolean;
   },
 ): ResolvedAliasRow[] {
   const defaultRouting = opts.defaultRouting ?? "failover";
@@ -121,6 +123,7 @@ export function resolveAliasLines(
         status: "error" as const,
         messages: [row.parseError],
         warnings,
+        needsOverride: false,
       };
     }
 
@@ -131,6 +134,7 @@ export function resolveAliasLines(
         status: "error" as const,
         messages: ["name is required"],
         warnings,
+        needsOverride: false,
       };
     }
 
@@ -143,6 +147,7 @@ export function resolveAliasLines(
         routing: row.routing,
         messages: [`alias "${row.name}" already exists`],
         warnings,
+        needsOverride: false,
       };
     }
 
@@ -154,6 +159,7 @@ export function resolveAliasLines(
         name: row.name,
         messages: [`duplicate name "${row.name}" in paste`],
         warnings,
+        needsOverride: false,
       };
     }
     seenInBatch.add(row.name);
@@ -161,6 +167,9 @@ export function resolveAliasLines(
     const targets: AliasTarget[] = [];
     const targetLabels: string[] = [];
     const pairKeys = new Set<string>();
+
+    const allowUnknown = opts.allowUnknownModels ?? false;
+    let needsOverride = false;
 
     for (let i = 0; i < row.targets.length; i++) {
       const t = row.targets[i];
@@ -179,6 +188,9 @@ export function resolveAliasLines(
       const models = opts.discovery?.[providerId]?.models ?? [];
       if (models.length > 0 && !models.some((m) => m.model_id === t.model_name)) {
         warnings.push(`${t.slug}:${t.model_name} not in discovery`);
+        if (!allowUnknown) {
+          needsOverride = true;
+        }
       }
 
       targets.push({
@@ -198,6 +210,7 @@ export function resolveAliasLines(
         routing: row.routing,
         messages,
         warnings,
+        needsOverride,
       };
     }
 
@@ -205,22 +218,25 @@ export function resolveAliasLines(
       warnings.push("no targets (alias will 503 until targets are added)");
     }
 
+    const status: ResolveStatus = needsOverride ? "warn" : "ok";
+
     return {
       line: row.line,
       raw: row.raw,
-      status: "ok" as const,
+      status,
       name: row.name,
       routing: row.routing,
       targets,
       targetLabels,
       messages: [],
       warnings,
+      needsOverride,
     };
   });
 }
 
 export function rowToAlias(row: ResolvedAliasRow): Alias | null {
-  if (row.status !== "ok" || !row.name || !row.routing) return null;
+  if ((row.status !== "ok" && row.status !== "warn") || !row.name || !row.routing) return null;
   return {
     id: "",
     name: row.name,

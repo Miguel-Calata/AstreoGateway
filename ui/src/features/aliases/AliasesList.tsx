@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -8,7 +8,7 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, v
 import { CSS } from "@dnd-kit/utilities";
 import { FileUp, GripVertical, Plus, Trash2, X } from "lucide-react";
 import {
-  useAliases, useCreateAlias, useUpdateAlias, useDeleteAlias, useDiscovery, useProviders, ROUTING_MODES,
+  useAliases, useCreateAlias, useUpdateAlias, useDeleteAlias, useDiscovery, useProviders, useStale, ROUTING_MODES,
 } from "@/lib/queries";
 import { ApiError, type Alias, type AliasTarget, type RoutingMode } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ const EMPTY_ALIAS: Alias = { id: "", name: "", routing: "failover", enabled: tru
 
 export function AliasesList() {
   const { data, isLoading } = useAliases();
+  const stale = useStale();
   const del = useDeleteAlias();
   const [editorOpen, setEditorOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -36,6 +37,16 @@ export function AliasesList() {
 
   const openNew = () => { setEditing(undefined); setEditorOpen(true); };
   const openEdit = (a: Alias) => { setEditing(a); setEditorOpen(true); };
+
+  const staleByAlias = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const s of stale) {
+      let set = m.get(s.alias_id);
+      if (!set) { set = new Set(); m.set(s.alias_id, set); }
+      set.add(s.provider_id + ":" + s.model_name);
+    }
+    return m;
+  }, [stale]);
 
   const headerActions = (
     <div className="flex flex-wrap gap-2">
@@ -72,16 +83,26 @@ export function AliasesList() {
                 <th className="px-3 py-2 text-left">Name</th>
                 <th className="px-3 py-2 text-left">Routing</th>
                 <th className="px-3 py-2 text-left">Targets</th>
+                <th className="px-3 py-2 text-left">Stale</th>
                 <th className="px-3 py-2 text-left">Enabled</th>
                 <th className="px-3 py-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {data.map((a) => (
+              {data.map((a) => {
+                  const staleTargets = staleByAlias.get(a.id);
+                  const staleCount = staleTargets?.size ?? 0;
+                  const totalTargets = a.targets?.length ?? 0;
+                  return (
                 <tr key={a.id} className="border-b border-border/60">
                   <td className="px-3 py-2"><span className="font-mono font-medium">{a.name}</span></td>
                   <td className="px-3 py-2"><Badge variant="secondary">{a.routing}</Badge></td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{a.targets?.length ?? 0}</td>
+                  <td className="px-3 py-2 text-xs text-muted-foreground">{totalTargets}</td>
+                  <td className="px-3 py-2">
+                    {staleCount > 0 && (
+                      <Badge variant="warning">{staleCount} stale{totalTargets > 0 && staleCount === totalTargets ? " (all)" : ""}</Badge>
+                    )}
+                  </td>
                   <td className="px-3 py-2"><Badge variant={a.enabled ? "success" : "secondary"}>{a.enabled ? "on" : "off"}</Badge></td>
                   <td className="px-3 py-2 text-right">
                     <div className="flex justify-end gap-1">
@@ -99,7 +120,8 @@ export function AliasesList() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                  );
+                })}
             </tbody>
           </table>
         </div>

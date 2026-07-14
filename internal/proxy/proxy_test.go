@@ -45,6 +45,7 @@ func setupProxy(t *testing.T) *proxyEnv {
 	cache := discovery.New(db, pool, 5*time.Minute, 5*time.Second, nopLogger)
 	sel := routing.NewSelector(db, cache, pool)
 	prox := New(pool, 5*time.Second, 30*time.Second, nopLogger)
+	prox.SetDiscoveryCache(cache)
 	return &proxyEnv{proxy: prox, sel: sel, cache: cache, pool: pool, db: db}
 }
 
@@ -253,5 +254,283 @@ func TestOpenAIBaseURLWithV1(t *testing.T) {
 	}
 	if gotPath != "/v1/chat/completions" {
 		t.Fatalf("expected path /v1/chat/completions, got %q", gotPath)
+	}
+}
+
+func TestFailoverRoundRobin5xx(t *testing.T) {
+	call1 := 0
+	upstream1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call1++
+		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
+	}))
+	defer upstream1.Close()
+
+	upstream2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": "chatcmpl-2"})
+	}))
+	defer upstream2.Close()
+
+	e := setupProxy(t)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', ?, 1)`, upstream1.URL)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p2', 'p2', 'p2', 'openai', ?, 1)`, upstream2.URL)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k1', 'p1', 'k', 'sk1', 0, 1)`)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k2', 'p2', 'k', 'sk2', 0, 1)`)
+	e.db.Exec(`INSERT INTO aliases (id, name, routing, enabled) VALUES ('a1', 'coding', 'round_robin', 1)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p1', 'gpt-5', 0)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p2', 'gpt-4o', 1)`)
+	e.pool.Load(e.db)
+	e.cache.InjectTestModels("p1", []discovery.Model{{ProviderID: "p1", ModelID: "gpt-5"}})
+	e.cache.InjectTestModels("p2", []discovery.Model{{ProviderID: "p2", ModelID: "gpt-4o"}})
+
+	body := []byte(`{"model":"coding","messages":[]}`)
+	w := httptest.NewRecorder()
+	e.proxy.ChatCompletions(context.Background(), w, e.sel, "coding", body, false)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200 from round_robin retry, got %d: %s", w.Code, w.Body.String())
+	}
+	if call1 != 1 {
+		t.Fatalf("expected 1 call to upstream1, got %d", call1)
+	}
+}
+
+func TestFailoverPriority5xx(t *testing.T) {
+	call1 := 0
+	upstream1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call1++
+		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
+	}))
+	defer upstream1.Close()
+
+	upstream2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": "chatcmpl-2"})
+	}))
+	defer upstream2.Close()
+
+	e := setupProxy(t)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', ?, 1)`, upstream1.URL)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p2', 'p2', 'p2', 'openai', ?, 1)`, upstream2.URL)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k1', 'p1', 'k', 'sk1', 0, 1)`)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k2', 'p2', 'k', 'sk2', 0, 1)`)
+	e.db.Exec(`INSERT INTO aliases (id, name, routing, enabled) VALUES ('a1', 'coding', 'priority', 1)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p1', 'gpt-5', 0)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p2', 'gpt-4o', 1)`)
+	e.pool.Load(e.db)
+	e.cache.InjectTestModels("p1", []discovery.Model{{ProviderID: "p1", ModelID: "gpt-5"}})
+	e.cache.InjectTestModels("p2", []discovery.Model{{ProviderID: "p2", ModelID: "gpt-4o"}})
+
+	body := []byte(`{"model":"coding","messages":[]}`)
+	w := httptest.NewRecorder()
+	e.proxy.ChatCompletions(context.Background(), w, e.sel, "coding", body, false)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200 from priority retry, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestFailoverOn404(t *testing.T) {
+	upstream1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":{"message":"model not found"}}`, http.StatusNotFound)
+	}))
+	defer upstream1.Close()
+
+	upstream2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": "chatcmpl-2"})
+	}))
+	defer upstream2.Close()
+
+	e := setupProxy(t)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', ?, 1)`, upstream1.URL)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p2', 'p2', 'p2', 'openai', ?, 1)`, upstream2.URL)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k1', 'p1', 'k', 'sk1', 0, 1)`)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k2', 'p2', 'k', 'sk2', 0, 1)`)
+	e.db.Exec(`INSERT INTO aliases (id, name, routing, enabled) VALUES ('a1', 'coding', 'failover', 1)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p1', 'gpt-5', 0)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p2', 'gpt-4o', 1)`)
+	e.pool.Load(e.db)
+	e.cache.InjectTestModels("p1", []discovery.Model{{ProviderID: "p1", ModelID: "gpt-5"}})
+	e.cache.InjectTestModels("p2", []discovery.Model{{ProviderID: "p2", ModelID: "gpt-4o"}})
+
+	body := []byte(`{"model":"coding","messages":[]}`)
+	w := httptest.NewRecorder()
+	e.proxy.ChatCompletions(context.Background(), w, e.sel, "coding", body, false)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200 from 404 failover, got %d: %s", w.Code, w.Body.String())
+	}
+
+	stale := e.cache.StaleTargets()
+	if len(stale) == 0 {
+		t.Fatalf("expected p1:gpt-5 to be marked runtime-stale after 404")
+	}
+	found := false
+	for _, s := range stale {
+		if s.ProviderID == "p1" && s.ModelName == "gpt-5" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected stale target p1:gpt-5, got %+v", stale)
+	}
+}
+
+func TestFailoverOn403(t *testing.T) {
+	upstream1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"no credits"}`, http.StatusForbidden)
+	}))
+	defer upstream1.Close()
+
+	upstream2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": "chatcmpl-2"})
+	}))
+	defer upstream2.Close()
+
+	e := setupProxy(t)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', ?, 1)`, upstream1.URL)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p2', 'p2', 'p2', 'openai', ?, 1)`, upstream2.URL)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k1', 'p1', 'k', 'sk1', 0, 1)`)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k2', 'p2', 'k', 'sk2', 0, 1)`)
+	e.db.Exec(`INSERT INTO aliases (id, name, routing, enabled) VALUES ('a1', 'coding', 'failover', 1)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p1', 'gpt-5', 0)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p2', 'gpt-4o', 1)`)
+	e.pool.Load(e.db)
+	e.cache.InjectTestModels("p1", []discovery.Model{{ProviderID: "p1", ModelID: "gpt-5"}})
+	e.cache.InjectTestModels("p2", []discovery.Model{{ProviderID: "p2", ModelID: "gpt-4o"}})
+
+	body := []byte(`{"model":"coding","messages":[]}`)
+	w := httptest.NewRecorder()
+	e.proxy.ChatCompletions(context.Background(), w, e.sel, "coding", body, false)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200 from 403 failover, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestFailoverWithNetworkError(t *testing.T) {
+	e := setupProxy(t)
+
+	upstream2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": "chatcmpl-2"})
+	}))
+	defer upstream2.Close()
+
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', 'http://127.0.0.1:1', 1)`)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p2', 'p2', 'p2', 'openai', ?, 1)`, upstream2.URL)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k1', 'p1', 'k', 'sk1', 0, 1)`)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k2', 'p2', 'k', 'sk2', 0, 1)`)
+	e.db.Exec(`INSERT INTO aliases (id, name, routing, enabled) VALUES ('a1', 'coding', 'failover', 1)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p1', 'gpt-5', 0)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p2', 'gpt-4o', 1)`)
+	e.pool.Load(e.db)
+	e.cache.InjectTestModels("p1", []discovery.Model{{ProviderID: "p1", ModelID: "gpt-5"}})
+	e.cache.InjectTestModels("p2", []discovery.Model{{ProviderID: "p2", ModelID: "gpt-4o"}})
+
+	body := []byte(`{"model":"coding","messages":[]}`)
+	w := httptest.NewRecorder()
+	e.proxy.ChatCompletions(context.Background(), w, e.sel, "coding", body, false)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200 from network error failover, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestNoFailoverFor400AllModes(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"bad request"}`, http.StatusBadRequest)
+	}))
+	defer upstream.Close()
+
+	for _, mode := range []string{"failover", "round_robin", "priority", "random"} {
+		t.Run(mode, func(t *testing.T) {
+			e := setupProxy(t)
+			e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', ?, 1)`, upstream.URL)
+			e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k1', 'p1', 'k', 'sk1', 0, 1)`)
+			e.db.Exec(`INSERT INTO aliases (id, name, routing, enabled) VALUES ('a1', 'coding', ?, 1)`, mode)
+			e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p1', 'gpt-5', 0)`)
+			e.pool.Load(e.db)
+			e.cache.InjectTestModels("p1", []discovery.Model{{ProviderID: "p1", ModelID: "gpt-5"}})
+
+			body := []byte(`{"model":"coding","messages":[]}`)
+			w := httptest.NewRecorder()
+			e.proxy.ChatCompletions(context.Background(), w, e.sel, "coding", body, false)
+
+			if w.Code != 400 {
+				t.Fatalf("%s: expected 400 (no failover), got %d: %s", mode, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestFailoverRewritesModelName(t *testing.T) {
+	var gotModel string
+	upstream1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
+	}))
+	defer upstream1.Close()
+
+	upstream2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var peek struct {
+			Model string `json:"model"`
+		}
+		b, _ := io.ReadAll(r.Body)
+		json.Unmarshal(b, &peek)
+		gotModel = peek.Model
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"id": "chatcmpl-2"})
+	}))
+	defer upstream2.Close()
+
+	e := setupProxy(t)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p1', 'p1', 'p1', 'openai', ?, 1)`, upstream1.URL)
+	e.db.Exec(`INSERT INTO providers (id, name, slug, protocol, base_url, enabled) VALUES ('p2', 'p2', 'p2', 'openai', ?, 1)`, upstream2.URL)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k1', 'p1', 'k', 'sk1', 0, 1)`)
+	e.db.Exec(`INSERT INTO api_keys (id, provider_id, label, key_value, priority, enabled) VALUES ('k2', 'p2', 'k', 'sk2', 0, 1)`)
+	e.db.Exec(`INSERT INTO aliases (id, name, routing, enabled) VALUES ('a1', 'coding', 'failover', 1)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p1', 'gpt-5', 0)`)
+	e.db.Exec(`INSERT INTO alias_targets (alias_id, provider_id, model_name, position) VALUES ('a1', 'p2', 'claude-4', 1)`)
+	e.pool.Load(e.db)
+	e.cache.InjectTestModels("p1", []discovery.Model{{ProviderID: "p1", ModelID: "gpt-5"}})
+	e.cache.InjectTestModels("p2", []discovery.Model{{ProviderID: "p2", ModelID: "claude-4"}})
+
+	body := []byte(`{"model":"coding","messages":[{"role":"user","content":"hi"}]}`)
+	w := httptest.NewRecorder()
+	e.proxy.ChatCompletions(context.Background(), w, e.sel, "coding", body, false)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if gotModel != "claude-4" {
+		t.Fatalf("expected model rewritten to claude-4, got %s", gotModel)
+	}
+}
+
+func TestDirectAccessNoFailover(t *testing.T) {
+	callCount := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
+	}))
+	defer upstream.Close()
+
+	e := setupProxy(t)
+	seedProvAndKey(t, e.db, "prov1", upstream.URL, "sk-upstream")
+	e.pool.Load(e.db)
+	e.cache.InjectTestModels("prov1", []discovery.Model{{ProviderID: "prov1", ModelID: "gpt-5"}})
+
+	body := []byte(`{"model":"prov1:gpt-5","messages":[]}`)
+	w := httptest.NewRecorder()
+	e.proxy.ChatCompletions(context.Background(), w, e.sel, "prov1:gpt-5", body, false)
+
+	if w.Code != 500 {
+		t.Fatalf("expected 500 from direct access (no retry), got %d", w.Code)
+	}
+	if callCount != 1 {
+		t.Fatalf("expected 1 call, got %d (direct access should not retry)", callCount)
 	}
 }

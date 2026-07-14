@@ -52,19 +52,21 @@ type Cache struct {
 	httpC   *http.Client
 	logger  *slog.Logger
 
-	ticker *time.Ticker
-	cancel context.CancelFunc
+	ticker       *time.Ticker
+	cancel       context.CancelFunc
+	runtimeStale map[string]map[string]time.Time
 }
 
 func New(db *sql.DB, pool *keypool.Pool, ttl, timeout time.Duration, logger *slog.Logger) *Cache {
 	return &Cache{
-		entries: make(map[string]providerEntry),
-		db:      db,
-		pool:    pool,
-		ttl:     ttl,
-		timeout: timeout,
-		httpC:   &http.Client{Timeout: timeout},
-		logger:  logger,
+		entries:      make(map[string]providerEntry),
+		db:           db,
+		pool:         pool,
+		ttl:          ttl,
+		timeout:      timeout,
+		httpC:        &http.Client{Timeout: timeout},
+		logger:       logger,
+		runtimeStale: make(map[string]map[string]time.Time),
 	}
 }
 
@@ -172,10 +174,54 @@ func (c *Cache) Snapshot() map[string]ProviderSnapshot {
 	return out
 }
 
+func (c *Cache) HasModel(providerID, modelID string) bool {
+	c.mu.RLock()
+	e, ok := c.entries[providerID]
+	c.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	for _, m := range e.models {
+		if m.ModelID == modelID {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Cache) Remove(providerID string) {
 	c.mu.Lock()
 	delete(c.entries, providerID)
 	c.mu.Unlock()
+}
+
+func (c *Cache) MarkRuntimeStale(providerID, modelName string) {
+	c.mu.Lock()
+	if c.runtimeStale[providerID] == nil {
+		c.runtimeStale[providerID] = make(map[string]time.Time)
+	}
+	c.runtimeStale[providerID][modelName] = time.Now()
+	c.mu.Unlock()
+}
+
+func (c *Cache) injectRuntimeStale(known map[string]map[string]bool) {
+	if c.runtimeStale == nil {
+		return
+	}
+	for pid, models := range c.runtimeStale {
+		if _, ok := known[pid]; !ok {
+			known[pid] = make(map[string]bool)
+		}
+		for m := range models {
+			known[pid][m] = false
+		}
+	}
+}
+
+func (c *Cache) clearRuntimeStaleFor(providerID string) {
+	if c.runtimeStale[providerID] != nil {
+		c.runtimeStale[providerID] = make(map[string]time.Time)
+	}
 }
 
 func (c *Cache) InjectTestModels(providerID string, models []Model) {
@@ -194,8 +240,6 @@ func (c *Cache) StaleTargets() []StaleTarget {
 	c.mu.RLock()
 	known := make(map[string]map[string]bool)
 	for pid, e := range c.entries {
-		// Only mark stale after a successful discovery (or a prior success still holding models).
-		// No entry / never-succeeded error → unknown, not stale.
 		if e.fetchedAt.IsZero() && len(e.models) == 0 {
 			continue
 		}
@@ -205,6 +249,7 @@ func (c *Cache) StaleTargets() []StaleTarget {
 		}
 		known[pid] = m
 	}
+	c.injectRuntimeStale(known)
 	c.mu.RUnlock()
 
 	aliases, err := store.ListAliases(c.db)
@@ -286,6 +331,7 @@ func (c *Cache) refreshProvider(ctx context.Context, providerID string) error {
 		models:    models,
 		fetchedAt: time.Now(),
 	}
+	c.clearRuntimeStaleFor(providerID)
 	c.mu.Unlock()
 	return nil
 }

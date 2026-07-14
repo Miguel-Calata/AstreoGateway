@@ -27,7 +27,7 @@ func NewRouter(db *sql.DB, secret string, cache *discovery.Cache, pool *keypool.
 			r.Mount("/", providerAPIKeysRouter(db, pool))
 		})
 		r.Mount("/api-keys", apiKeysRouter(db, pool))
-		r.Mount("/aliases", aliasesRouter(db))
+		r.Mount("/aliases", aliasesRouter(db, cache))
 		r.Mount("/gateway-keys", gatewayKeysRouter(db))
 		r.Mount("/discovery", discoveryRouter(cache))
 	})

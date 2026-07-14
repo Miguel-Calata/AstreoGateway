@@ -347,7 +347,7 @@ func TestAliasesCRUD(t *testing.T) {
 	_ = provResp.Body.Close()
 	providerID := prov["id"].(string)
 
-	resp := doReq("POST", "/admin/api/aliases", map[string]any{
+	resp := doReq("POST", "/admin/api/aliases?allow_unknown_models=1", map[string]any{
 		"name": "coding", "routing": "failover", "enabled": true,
 		"targets": []map[string]any{
 			{"provider_id": providerID, "model_name": "gpt-5", "position": 0},
